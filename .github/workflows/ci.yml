@@ -1,0 +1,31 @@
+# CI — the correctness gate.
+# On every push to main and every PR: compile the app and run the headless tests.
+# Advisory for now (doesn't block merges). Flip on branch protection to make it
+# REQUIRED once the repo is public with outside contributors.
+#
+# This runs on GitHub's hosted Mac (ephemeral + isolated, free on public repos).
+# The TCC/GPU/paste e2e can't run here — that lands on a self-hosted mini0 runner
+# in a later job. See the portfolio CI policy.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest   # GitHub-hosted Mac; ships Swift + Node preinstalled
+    steps:
+      - uses: actions/checkout@v4
+
+      # Compile-only check — NOT build.sh, which also code-signs and installs to
+      # /Applications (a local/release concern). CI only proves the code compiles.
+      - name: Compile (swiftc)
+        run: |
+          swiftc -o /tmp/WhisperOwn VoiceToText.swift \
+            -framework Cocoa -framework AVFoundation -framework Carbon
+
+      # Headless unit tests — the deterministic postprocess pipeline (no deps, no DB).
+      - name: Postprocess tests
+        run: node backend/postprocess.test.js
