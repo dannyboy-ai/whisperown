@@ -1,12 +1,16 @@
-# e2e — runs on the SELF-HOSTED mini0 runner, which (unlike GitHub's cloud Macs) can
-# hold a real TCC grant, the GPU/MLX model, and a display. Right now it just proves the
-# mini0 runner works; the real steps (Parakeet health, permission checks, inject-WAV →
-# assert-paste) land here next, later wrapped in an ephemeral Tart VM.
+# e2e — runs on the self-hosted mini0 runner, but INSIDE a fresh, throwaway Tart VM.
+# The runner only orchestrates; the actual work runs in a disposable macOS VM that's
+# destroyed after every job. So each run starts from an identical clean image and
+# untrusted code never touches the host — the isolation that makes a self-hosted
+# runner safe even for a public repo.
 #
-# SAFETY: triggers ONLY on our own pushes to main — never `pull_request`. A self-hosted
-# runner must never execute untrusted fork code. This gating is what keeps it safe once
-# the repo is public.
-name: e2e (self-hosted)
+# Right now the in-VM step is just a proof; the real e2e (Parakeet health, permission
+# checks, inject-WAV → assert-paste) lands here next, on a base image with whisperown's
+# runtime baked in.
+#
+# SAFETY: push-to-main only, never `pull_request` — a self-hosted runner must never run
+# untrusted fork code.
+name: e2e (self-hosted · ephemeral VM)
 
 on:
   push:
@@ -16,9 +20,23 @@ jobs:
   selftest:
     runs-on: [self-hosted, macOS]
     steps:
-      - uses: actions/checkout@v4
-      - name: Prove the mini0 runner picked this up
+      - name: e2e inside a fresh ephemeral Tart VM
         run: |
-          echo "hostname: $(hostname)"
-          echo "arch:     $(uname -m)"
-          echo "This ran on YOUR mini0, not GitHub's cloud."
+          export PATH="/opt/homebrew/bin:$PATH"
+          VM="ci-${GITHUB_RUN_ID}"
+
+          # Always destroy the VM, even if the checks below fail.
+          cleanup() { tart stop "$VM" 2>/dev/null || true; tart delete "$VM" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          # Fresh copy-on-write clone of the clean base image, booted headless.
+          tart clone base "$VM"
+          nohup tart run "$VM" --no-graphics >/tmp/"$VM".log 2>&1 </dev/null &
+
+          # Wait for the VM to come up and get an IP.
+          for i in $(seq 1 60); do IP=$(tart ip "$VM" 2>/dev/null); [ -n "$IP" ] && break; sleep 2; done
+          echo "VM booted at $IP"
+
+          # The actual check, run INSIDE the throwaway VM.
+          sshpass -p admin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin@"$IP" \
+            'echo "e2e ran inside an ephemeral VM: $(hostname) / macOS $(sw_vers -productVersion)"'
