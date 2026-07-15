@@ -33,8 +33,12 @@ jobs:
           tart clone base "$VM"
           nohup tart run "$VM" --no-graphics >/tmp/"$VM".log 2>&1 </dev/null &
 
-          # Wait for the VM to come up and get an IP.
-          for i in $(seq 1 60); do IP=$(tart ip "$VM" 2>/dev/null); [ -n "$IP" ] && break; sleep 2; done
+          # Wait for the VM to come up and get an IP. The `|| true` matters: the step
+          # runs under `bash -e`, so without it the first (expected) failed `tart ip`
+          # while the VM is still booting would abort the whole script.
+          IP=""
+          for i in $(seq 1 60); do IP=$(tart ip "$VM" 2>/dev/null || true); [ -n "$IP" ] && break; sleep 2; done
+          [ -z "$IP" ] && { echo "VM never got an IP"; exit 1; }
           echo "VM booted at $IP"
 
           # The actual check, run INSIDE the throwaway VM.
