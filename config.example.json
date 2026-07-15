@@ -1,0 +1,8 @@
+{
+  "_readme": "Copy this file to ~/Library/Application Support/Voice-to-Text/config.json and edit. Everything is optional — with no config file at all, the backend transcribes on the local Parakeet-MLX server (server/parakeet_server.py). Restart the backend (pm2 restart voice-to-text-backend) after editing.",
+
+  "remote": {
+    "_readme": "Route transcription to a remote box instead of the local Parakeet server. Set 'parakeet' to any endpoint that accepts a raw-WAV POST and returns {text}. Omit or leave empty to stay fully local.",
+    "parakeet": "http://your-gpu-box.lan:8005/transcribe"
+  }
+}
