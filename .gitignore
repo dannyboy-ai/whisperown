@@ -1,0 +1,10 @@
+dist/
+backend/node_modules/
+*.DS_Store
+compile_commands.json
+config.local.json
+backend/config.local.json
+
+# swift build artifacts
+experiments/fluid-proto/.build/
+server/.venv-parakeet/
