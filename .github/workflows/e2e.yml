@@ -1,0 +1,24 @@
+# e2e — runs on the SELF-HOSTED mini0 runner, which (unlike GitHub's cloud Macs) can
+# hold a real TCC grant, the GPU/MLX model, and a display. Right now it just proves the
+# mini0 runner works; the real steps (Parakeet health, permission checks, inject-WAV →
+# assert-paste) land here next, later wrapped in an ephemeral Tart VM.
+#
+# SAFETY: triggers ONLY on our own pushes to main — never `pull_request`. A self-hosted
+# runner must never execute untrusted fork code. This gating is what keeps it safe once
+# the repo is public.
+name: e2e (self-hosted)
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  selftest:
+    runs-on: [self-hosted, macOS]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove the mini0 runner picked this up
+        run: |
+          echo "hostname: $(hostname)"
+          echo "arch:     $(uname -m)"
+          echo "This ran on YOUR mini0, not GitHub's cloud."
