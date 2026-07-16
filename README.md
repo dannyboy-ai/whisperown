@@ -49,15 +49,17 @@ slow to start, subscription-gated, or mangles technical vocabulary. This one is:
 
 ## Setup
 
-One command, then two macOS settings.
+Get the code, run one command, then two macOS settings.
 
-### 1. Install
+### 1. Get the code + install
 
 ```sh
+git clone https://github.com/dannyboy-ai/whisperown.git
+cd whisperown
 ./install.sh
 ```
 
-That creates the Python backend (a virtualenv + the transcription deps), installs a
+`install.sh` creates the Python backend (a virtualenv + the transcription deps), installs a
 login **launch agent** that keeps it warm at `127.0.0.1:8000`, and builds the app
 into `/Applications`. The first time the agent starts it downloads the Parakeet model
 (a few hundred MB) — after that it's fully offline. Re-run `./install.sh` anytime
