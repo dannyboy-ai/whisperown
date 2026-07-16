@@ -1,0 +1,28 @@
+# CI — the correctness gate.
+# On every push to main and every PR: compile the app and run the headless tests.
+# Advisory for now (doesn't block merges). Flip on branch protection to make it
+# required once there are outside contributors.
+#
+# Runs on GitHub's hosted Mac. The integration checks that need the live macOS
+# surface (permissions, GPU, paste) run separately (see e2e.yml).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest   # GitHub-hosted Mac; ships Swift + Node preinstalled
+    steps:
+      - uses: actions/checkout@v4
+
+      # Compile-only check — not build.sh, which also code-signs and installs to
+      # /Applications (a release concern). CI only proves the code compiles.
+      - name: Build (SwiftPM)
+        run: swift build
+
+      # Headless unit tests — the deterministic postprocess pipeline (no deps, no DB).
+      - name: Postprocess tests
+        run: node backend/postprocess.test.js

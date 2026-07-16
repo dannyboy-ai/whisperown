@@ -1,0 +1,20 @@
+dist/
+backend/node_modules/
+*.DS_Store
+compile_commands.json
+config.local.json
+backend/config.local.json
+
+# swift build artifacts
+.build/
+experiments/fluid-proto/.build/
+server/.venv-parakeet/
+
+# private breadcrumbs — never public (see ../CLAUDE.md)
+CLAUDE.local.md
+
+# internal / half-baked docs kept on disk but out of the public repo
+docs/MENUBAR-DEBUG.md
+docs/STREAMING-SPEC.md
+docs/BENCHMARKS.md
+experiments/

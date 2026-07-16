@@ -1,0 +1,70 @@
+# Integration checks that need the live macOS surface (a real toolchain, full
+# isolation) rather than a hosted runner. Runs inside a fresh, throwaway VM: the
+# checked-out repo is mounted read-only, the VM runs whisperown's real checks, and
+# it is destroyed after every job — untrusted code never touches the host.
+#
+# MINIMAL DRAFT: proves the pipeline exercises real whisperown code end-to-end. The
+# base VM image has swift + python3 (node unit tests already run in ci.yml). The
+# heavy e2e (Parakeet model + MLX + TCC + real inject-WAV→paste) needs a custom VM
+# image with whisperown's runtime.
+#
+# SAFETY: push-to-main only, never `pull_request` — this must never run untrusted
+# fork code.
+name: e2e — live macOS surface (isolated VM)
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  selftest:
+    runs-on: [self-hosted, macOS]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: whisperown checks inside a fresh, throwaway VM
+        run: |
+          export PATH="/opt/homebrew/bin:$PATH"
+          VM="ci-${GITHUB_RUN_ID}"
+
+          # Always destroy the VM, even if the checks fail.
+          cleanup() { tart stop "$VM" 2>/dev/null || true; tart delete "$VM" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          # Fresh clone of the clean base image; mount the checked-out repo read-only.
+          tart clone base "$VM"
+          nohup tart run "$VM" --no-graphics --dir=repo:"$GITHUB_WORKSPACE":ro \
+            >/tmp/"$VM".log 2>&1 </dev/null &
+
+          # Wait for the VM's IP. `|| true` so the first (expected) miss doesn't trip `bash -e`.
+          IP=""
+          for i in $(seq 1 60); do IP=$(tart ip "$VM" 2>/dev/null || true); [ -n "$IP" ] && break; sleep 2; done
+          if [ -z "$IP" ]; then echo "VM never got an IP"; exit 1; fi
+          echo "VM booted at $IP"
+
+          # Run the real checks INSIDE the VM, against the mounted repo. Password-only auth
+          # (PubkeyAuthentication=no) avoids "too many auth failures" when keys are present.
+          sshpass -p admin ssh \
+            -o PreferredAuthentications=password -o PubkeyAuthentication=no \
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            admin@"$IP" '
+              set -e
+              cd "/Volumes/My Shared Files/repo"
+              echo "in-VM: $(hostname) / macOS $(sw_vers -productVersion)"
+
+              echo "--- [1/3] clean-room build of the app (SwiftPM) ---"
+              # Repo is mounted read-only, so send build artifacts to a writable path.
+              swift build --build-path /tmp/wo-build
+              echo "    OK: app builds in a clean VM"
+
+              echo "--- [2/3] transcription-server sanity (py_compile) ---"
+              python3 -m py_compile server/parakeet_server.py
+              echo "    OK: parakeet_server.py parses"
+
+              echo "--- [3/3] structural wiring present ---"
+              for f in Package.swift Sources/main.swift build.sh backend/postprocess.js \
+                       server/parakeet_server.py server/com.whisperown.parakeet.plist; do
+                if [ -f "$f" ]; then echo "    OK: $f"; else echo "    MISSING: $f"; exit 1; fi
+              done
+              echo "ALL VM CHECKS PASSED"
+            '

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.whisperown.app</string>
+    <key>CFBundleName</key>
+    <string>WhisperOwn</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleExecutable</key>
+    <string>WhisperOwn</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>WhisperOwn needs microphone access to record your speech for transcription.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>WhisperOwn needs accessibility access to paste transcribed text into your active application.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <!-- The app only talks to its own localhost backend; the backend makes
+             any remote calls (Node is not subject to ATS). -->
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+</dict>
+</plist>

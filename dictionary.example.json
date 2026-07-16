@@ -1,0 +1,8 @@
+{
+  "_readme_1": "Copy to ~/Library/Application Support/WhisperOwn/dictionary.json (or edit live from the menubar via 'Add to Dictionary').",
+  "_readme_2": "Keys are what the model mis-hears, values are what you actually said. Applied case-insensitively to every transcription. Great for names, brands, and jargon the model reliably gets wrong.",
+
+  "wisper": "whisper",
+  "deepseq": "deepseek",
+  "get hub": "github"
+}

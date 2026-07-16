@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.whisperown.parakeet</string>
+  <key>ProgramArguments</key><array>
+    <string>__REPO__/server/.venv-parakeet/bin/python</string>
+    <string>__REPO__/server/parakeet_server.py</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>PORT</key><string>8005</string>
+    <key>HF_HUB_DISABLE_XET</key><string>1</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/whisperown-parakeet.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/whisperown-parakeet.log</string>
+</dict></plist>
