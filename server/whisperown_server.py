@@ -5,7 +5,7 @@ Mac's GPU (Parakeet-MLX), runs the deterministic cleanup, stores it, and returns
 the text. Nothing leaves the machine.
 
 Endpoints (all on 127.0.0.1):
-  POST /transcribe   raw WAV body -> {text, id}
+  POST /transcribe   JSON {path} to a WAV in the data dir -> {text, id}
   GET  /history      recent dictations (JSON rows)
   GET  /rules        the active cleanup-rule manifest (read-only viewer)
 
@@ -16,7 +16,7 @@ parakeet_mlx ffmpeg audio path entirely.
 import json
 import os
 import re
-import secrets
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -51,8 +51,6 @@ from parakeet_mlx import from_pretrained
 
 MODEL = os.environ.get("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3")
 PORT = int(os.environ.get("PORT", "8000"))  # the menubar app expects 8000
-RECORDINGS_DIR = os.path.join(DATA_DIR, "recordings")
-os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
 # Skip files below this — a tap-and-release produces a near-empty WAV, not speech.
 MIN_WAV_BYTES = 10_000
@@ -66,7 +64,7 @@ _LK = threading.Lock()
 
 print(f"loading {MODEL} …", flush=True)
 M = from_pretrained(MODEL)
-_tmp = os.path.join(RECORDINGS_DIR, f".warm-{secrets.token_hex(4)}.wav")
+_tmp = tempfile.mktemp(suffix=".wav")
 sf.write(_tmp, np.zeros(16000, dtype="float32"), 16000)
 M.transcribe(_tmp)  # warm
 os.remove(_tmp)
@@ -98,14 +96,6 @@ def transcribe_file(path):
     return raw, dur, "parakeet"
 
 
-def save_recording(body):
-    name = f"{int(time.time() * 1000)}-{secrets.token_hex(4)}.wav"
-    path = os.path.join(RECORDINGS_DIR, name)
-    with open(path, "wb") as f:
-        f.write(body)
-    return path
-
-
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -123,7 +113,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
             return
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-        wav_path = save_recording(body)
+        try:
+            wav_path = os.path.abspath((json.loads(body) or {}).get("path", ""))
+        except (ValueError, AttributeError):
+            self._json(400, {"error": "expected JSON {path}"})
+            return
+        # The app records into DATA_DIR and hands us the path; only read from there.
+        if not wav_path.startswith(DATA_DIR + os.sep) or not os.path.isfile(wav_path):
+            self._json(400, {"error": "no such recording"})
+            return
         try:
             raw, dur, source = transcribe_file(wav_path)
         except Exception as e:

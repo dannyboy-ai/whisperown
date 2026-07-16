@@ -143,13 +143,16 @@ silent cloud fallback; a failure is always one you can see and replay.
 ## How it fits together
 
 ```
-┌─ menubar app (Swift) ─┐   raw WAV    ┌─ backend (Python :8000) ───────┐
+┌─ menubar app (Swift) ─┐   wav path   ┌─ backend (Python :8000) ───────┐
 │ Globe hotkey          ├─────────────►│ Parakeet-MLX transcribe (GPU)  │
 │ record 16kHz mono     │              │ postprocess (fillers, stutters,│
 │ paste at cursor       │◄─────────────┤   dictionary)                  │
 └───────────────────────┘    text +    │ SQLite history                 │
                              history    └────────────────────────────────┘
 ```
+
+Both live on the same Mac and share the recordings folder, so the app hands the
+backend the path to the WAV it just wrote — no audio is copied over the socket.
 
 The app only ever talks to its own localhost backend. Nothing reaches the network
 (except the one-time model download on first run).

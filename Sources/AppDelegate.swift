@@ -15,6 +15,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboarding: OnboardingWindowController?
     private var hotkeyArmed = false
 
+    // Hard cap on a single recording. A forgotten or stuck recording otherwise
+    // grows without bound (16kHz mono int16 is ~115 MB/hr). At the cap we stop and
+    // KEEP the file (recoverable via "Re-transcribe last"), but don't auto-paste an
+    // hour of text nobody asked for.
+    private var recordingCap: DispatchWorkItem?
+    private static let maxRecordingSeconds: TimeInterval = 3600
+
     private var appBundlePath: String {
         return Bundle.main.bundlePath
     }
@@ -224,10 +231,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         isRecording = true
         updateMenubarIcon(recording: true)
         recorder.startRecording()
+        let cap = DispatchWorkItem { [weak self] in self?.stopRecordingAtCap() }
+        recordingCap = cap
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.maxRecordingSeconds, execute: cap)
         print("Recording started...")
     }
 
     private func stopRecordingAndTranscribe() {
+        recordingCap?.cancel()
+        recordingCap = nil
         isRecording = false
         updateMenubarIcon(recording: false)
         // Stop and transcribe immediately — zero added latency. The tail is kept by
@@ -238,6 +250,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         lastWavURL = wavURL   // on disk — recoverable via "Re-transcribe last"
         transcribeAndPaste(wavURL: wavURL)
+    }
+
+    // The 1-hour cap fired: stop and save, but deliberately do NOT transcribe/paste
+    // (an hour in almost always means a forgotten recording). The WAV stays on disk.
+    private func stopRecordingAtCap() {
+        guard isRecording else { return }
+        recordingCap = nil
+        isRecording = false
+        updateMenubarIcon(recording: false)
+        if let wavURL = recorder.stopRecording() {
+            lastWavURL = wavURL
+        }
+        print("Recording hit the 1-hour cap — stopped and saved (not auto-transcribed).")
     }
 
     // A transcription failure is now surfaced (no silent slow-fallback): flash an
@@ -276,16 +301,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // ceiling is generous headroom.
         request.timeoutInterval = 300
 
-        let wavData: Data
-        do {
-            wavData = try Data(contentsOf: wavURL)
-        } catch {
-            print("Failed to read WAV file: \(error.localizedDescription)")
-            return
-        }
-        // Raw WAV as the request body — the backend streams it straight to disk.
-        request.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
-        request.httpBody = wavData
+        // Backend runs on the same machine and reads from the same recordings
+        // folder, so we hand it the path we already wrote instead of re-uploading
+        // the bytes for it to save a second copy. One file on disk, and it's cheap
+        // for long recordings (no multi-MB HTTP body).
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["path": wavURL.path])
 
         print("Sending to transcription backend...")
 
