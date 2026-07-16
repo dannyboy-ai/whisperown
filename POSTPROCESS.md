@@ -1,15 +1,15 @@
 # Post-processing rules
 
-Every transcription passes through `backend/postprocess.js` before it's pasted.
+Every transcription passes through `server/postprocess.py` before it's pasted.
 The pipeline is **deterministic string surgery — it never rewrites your words with
 an LLM.** It only removes artifacts real dictation produces (silence
 hallucinations, fillers, stutters, echoes) and applies your dictionary.
 
-**How to manage these:** edit `backend/postprocess.js` by hand or via your LLM —
+**How to manage these:** edit `server/postprocess.py` by hand or via your LLM —
 each rule below maps to one commented function. After any change, run the guard:
 
 ```sh
-node backend/postprocess.test.js      # 154 fixtures — this is the real check
+cd server && ./.venv/bin/python test_postprocess.py   # the fixtures — the real check
 ```
 
 The fixtures verify *behavior*, not structure, and every rule is **idempotent**
@@ -45,7 +45,7 @@ it does **not** appear in the app's "Cleanup Rules" list. It runs here only beca
 lexicalNormalize is the natural place to do word-level fixes.
 
 Each `dictionary.json` entry `"heard": "meant"` is applied **word-boundary
-anchored** — `new RegExp(\`\\b${escaped}\\b\`, "gi")`. The `\b` matters: without it,
+anchored** — `\b<escaped>\b`, case-insensitive. The `\b` matters: without it,
 a short key like `cel` would corrupt `cancel`/`excel`. Keys starting with `_` are
 treated as comments, not rules.
 - e.g. `wisper → whisper`, `get hub → github`. See [the dictionary](../dictionary.example.json).
@@ -134,5 +134,5 @@ jammed against it.
 ---
 
 *Editing tip: add the smallest fenced rule that fixes your case, add a fixture to
-`postprocess.test.js` capturing both the fix AND a near-miss it must NOT touch,
+`test_postprocess.py` capturing both the fix AND a near-miss it must NOT touch,
 then run the suite. The near-miss fixture is what stops a rule from over-reaching.*

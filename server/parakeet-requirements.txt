@@ -1,7 +1,0 @@
-# Local Parakeet-MLX backend (Apple Silicon). Set up:
-#   python3 -m venv .venv-parakeet && .venv-parakeet/bin/pip install -r parakeet-requirements.txt
-#   PORT=8005 .venv-parakeet/bin/python parakeet_server.py
-parakeet-mlx
-mlx
-soundfile
-librosa

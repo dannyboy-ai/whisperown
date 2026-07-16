@@ -4,9 +4,9 @@
 # it is destroyed after every job — untrusted code never touches the host.
 #
 # MINIMAL DRAFT: proves the pipeline exercises real whisperown code end-to-end. The
-# base VM image has swift + python3 (node unit tests already run in ci.yml). The
-# heavy e2e (Parakeet model + MLX + TCC + real inject-WAV→paste) needs a custom VM
-# image with whisperown's runtime.
+# base VM image has swift + python3 (the stdlib unit tests already run in ci.yml).
+# The heavy e2e (Parakeet model + MLX + TCC + real inject-WAV→paste) needs a custom
+# VM image with whisperown's runtime.
 #
 # SAFETY: push-to-main only, never `pull_request` — this must never run untrusted
 # fork code.
@@ -57,13 +57,14 @@ jobs:
               swift build --build-path /tmp/wo-build
               echo "    OK: app builds in a clean VM"
 
-              echo "--- [2/3] transcription-server sanity (py_compile) ---"
-              python3 -m py_compile server/parakeet_server.py
-              echo "    OK: parakeet_server.py parses"
+              echo "--- [2/3] backend sanity (cleanup tests + parse) ---"
+              ( cd server && python3 test_postprocess.py >/dev/null && echo "    OK: cleanup pipeline" )
+              python3 -m py_compile server/whisperown_server.py
+              echo "    OK: whisperown_server.py parses"
 
               echo "--- [3/3] structural wiring present ---"
-              for f in Package.swift Sources/main.swift build.sh backend/postprocess.js \
-                       server/parakeet_server.py server/com.whisperown.parakeet.plist; do
+              for f in Package.swift Sources/main.swift build.sh server/postprocess.py \
+                       server/whisperown_server.py server/db.py server/com.whisperown.server.plist; do
                 if [ -f "$f" ]; then echo "    OK: $f"; else echo "    MISSING: $f"; exit 1; fi
               done
               echo "ALL VM CHECKS PASSED"

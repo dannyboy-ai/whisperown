@@ -14,7 +14,7 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: macos-latest   # GitHub-hosted Mac; ships Swift + Node preinstalled
+    runs-on: macos-latest   # GitHub-hosted Mac; ships Swift + Python preinstalled
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +23,7 @@ jobs:
       - name: Build (SwiftPM)
         run: swift build
 
-      # Headless unit tests — the deterministic postprocess pipeline (no deps, no DB).
+      # Headless unit tests — the deterministic postprocess pipeline (stdlib only,
+      # no model deps, no DB).
       - name: Postprocess tests
-        run: node backend/postprocess.test.js
+        run: cd server && python3 test_postprocess.py

@@ -22,8 +22,7 @@
     <string>WhisperOwn needs accessibility access to paste transcribed text into your active application.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
-        <!-- The app only talks to its own localhost backend; the backend makes
-             any remote calls (Node is not subject to ATS). -->
+        <!-- The app only ever talks to its own localhost backend. -->
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>

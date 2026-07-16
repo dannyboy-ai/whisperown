@@ -3,7 +3,7 @@ import Foundation
 // The app's on-disk home: ~/Library/Application Support/WhisperOwn/ (recordings,
 // history DB, dictionary, config, logs). Centralized so every call site agrees,
 // and so the one-time rename from the former "Voice-to-Text" name runs exactly
-// once. The backend performs the same migration (backend/paths.js); whichever
+// once. The backend performs the same migration (server/paths.py); whichever
 // process starts first moves the directory, and both are idempotent.
 enum Paths {
     static let dataDir: URL = {

@@ -481,13 +481,13 @@ class DictionaryPanelController {
 
 // Read-only viewer of the active cleanup rules (fetched from the backend's /rules),
 // grouped into sections. Editing is deliberately NOT here — the Copy-prompt button
-// hands your agent a ready prompt; the agent edits backend/postprocess.js.
+// hands your agent a ready prompt; the agent edits server/postprocess.py.
 class RulesPanelController {
     private var panel: NSPanel!
     private var textView: NSTextView!
     private var copyButton: NSButton!
 
-    private let prompt = "WhisperOwn's dictation cleanup runs deterministic regex in backend/postprocess.js, each rule documented in POSTPROCESS.md. I want to change a cleanup rule: <describe the change>. Edit the rule, add a fixture to backend/postprocess.test.js covering BOTH the fix AND a near-miss it must not touch, then run `node backend/postprocess.test.js` and confirm all pass."
+    private let prompt = "WhisperOwn's dictation cleanup runs deterministic regex in server/postprocess.py, each rule documented in POSTPROCESS.md. I want to change a cleanup rule: <describe the change>. Edit the rule, add a fixture to server/test_postprocess.py covering BOTH the fix AND a near-miss it must not touch, then run `cd server && ./.venv/bin/python test_postprocess.py` and confirm all pass."
 
     init() {
         panel = NSPanel(
