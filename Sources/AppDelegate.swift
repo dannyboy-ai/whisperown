@@ -367,29 +367,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func pasteText(_ text: String) {
-        // `text` carries a trailing space (so a single dictation ends ready-to-type)
-        // and, by design, no trailing period. Look at what's just before the cursor:
-        // if the previous text ends on a word with no sentence punctuation (e.g. the
-        // last dictation), close it with a period so chained dictations don't run on.
-        // The period is inserted RIGHT after the word, so any trailing space left by
-        // the previous dictation is deleted first (backspaces).
+        // `text` has no trailing space and, by design, no trailing period. The
+        // separator is decided from whatever sits right before the cursor, so a
+        // chained dictation closes the previous one ("there. how") instead of
+        // running on.
+        //
+        // Nothing is ever deleted to achieve that. An earlier version emitted a
+        // trailing space and then backspaced it away to make the period hug the
+        // word — but a synthesized delete that loses the race leaves "there . how".
+        // Emitting no trailing space removes the need for the delete entirely.
         var toPaste = text
-        var backspaces = 0
         if let before = contextBeforeCursor() {
-            let wsSuffix = String(before.reversed().prefix { $0 == " " || $0 == "\t" || $0 == "\n" }.reversed())
-            let trimmed = String(before.dropLast(wsSuffix.count))
-            if trimmed.isEmpty || wsSuffix.contains("\n") {
-                // fresh field or a new line the user made — no period, paste as-is
-            } else if let last = trimmed.last {
-                if ".!?".contains(last) {
-                    if wsSuffix.isEmpty { toPaste = " " + text }
+            if let last = before.last {
+                if last == " " || last == "\t" || last == "\n" {
+                    // already separated (or a fresh line) — paste as-is
                 } else if last.isLetter || last.isNumber {
-                    toPaste = ". " + text
-                    backspaces = wsSuffix.count
-                } else if wsSuffix.isEmpty {
-                    toPaste = " " + text
+                    toPaste = ". " + text   // close the previous dictation
+                } else {
+                    toPaste = " " + text    // after . ! ? , etc.
                 }
             }
+            // before.isEmpty -> start of the field, paste as-is
+        } else {
+            // No accessibility context available (some apps expose none). Fall back
+            // to a trailing space so chained dictations still don't run together.
+            toPaste = text + " "
         }
 
         let pasteboard = NSPasteboard.general
@@ -400,32 +402,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             let source = CGEventSource(stateID: .hidSystemState)
-            // Delete the previous dictation's trailing space(s) so an inserted period
-            // hugs the word ("there. how", not "there . how").
-            for _ in 0..<backspaces {
-                CGEvent(keyboardEventSource: source, virtualKey: 0x33, keyDown: true)?.post(tap: .cgSessionEventTap)
-                CGEvent(keyboardEventSource: source, virtualKey: 0x33, keyDown: false)?.post(tap: .cgSessionEventTap)
-            }
-            let paste = {
-                let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-                keyDown?.flags = .maskCommand
-                keyDown?.post(tap: .cgSessionEventTap)
-                let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-                keyUp?.flags = .maskCommand
-                keyUp?.post(tap: .cgSessionEventTap)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    if let prev = previousContents {
-                        pasteboard.clearContents()
-                        pasteboard.setString(prev, forType: .string)
-                    }
+            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
+            keyDown?.flags = .maskCommand
+            keyDown?.post(tap: .cgSessionEventTap)
+            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
+            keyUp?.flags = .maskCommand
+            keyUp?.post(tap: .cgSessionEventTap)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if let prev = previousContents {
+                    pasteboard.clearContents()
+                    pasteboard.setString(prev, forType: .string)
                 }
-            }
-            // Paste only AFTER the deletions register — a same-tick paste can land
-            // before the backspaces, leaving the space in front of the period.
-            if backspaces > 0 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: paste)
-            } else {
-                paste()
             }
         }
     }

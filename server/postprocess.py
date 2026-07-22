@@ -225,17 +225,18 @@ def lexical_normalize(text, dictionary):
 
 def postprocess(text):
     """The single cleanup entry point for /transcribe. Lexical normalize ->
-    structural cleanup -> re-append the single trailing space the app expects. A
-    whole-record silence-garbage input cleans down to "" (returned as "", not a
-    lone space)."""
+    structural cleanup. Returns "" for a whole-record silence-garbage input.
+
+    No trailing space: the app decides how to join a dictation to whatever is
+    already before the cursor (see pasteText). A trailing space here would have to
+    be deleted again to make a chained period hug the word."""
     cleaned = structural_cleanup(lexical_normalize(text, load_dictionary()))
     if cleaned == "":
         return ""
     # Drop a single trailing sentence period for a casual, chat-style feel. Keeps
     # "?" and "!" (they carry tone) and every internal period. Only a "." right
     # after a word char — never an ellipsis ("toss...") or a decimal.
-    cleaned = re.sub(r"(?<=[a-z0-9])\.$", "", cleaned)
-    return cleaned + " "
+    return re.sub(r"(?<=[a-z0-9])\.$", "", cleaned)
 
 
 # Human-readable manifest of the active rules, surfaced in the app's "Cleanup
@@ -253,5 +254,5 @@ RULES = [
     {"section": "Finalize", "name": "Whitespace squeeze", "desc": "Collapses extra spaces; removes space before punctuation."},
     {"section": "Finalize", "name": "Emptiness normalize", "desc": "If only filler remained, it was silence → nothing pasted."},
     {"section": "Finalize", "name": "Drop trailing period", "desc": "Removes the final sentence period for a casual feel (keeps ? ! and internal periods)."},
-    {"section": "Finalize", "name": "Trailing space", "desc": "Ends with a space so dictations join cleanly."},
+    {"section": "Finalize", "name": "Join at the cursor", "desc": "Pasting adds the separator: a chained dictation closes the previous one (\"there. how\")."},
 ]

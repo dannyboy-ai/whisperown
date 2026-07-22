@@ -86,10 +86,13 @@ def transcribe_file(path):
     if os.path.getsize(path) < MIN_WAV_BYTES:
         return "", dur, None
     with _LK:
-        # Chunk long audio (with overlap) rather than one giant pass — a single
-        # pass silently drops the tail of long recordings. Files shorter than
+        # Chunk long audio (with overlap) rather than one giant pass — a single pass
+        # silently drops the tail. Chunks are deliberately SHORT: at 60s, a final
+        # sentence spoken after a long think-pause inside the same chunk gets
+        # swallowed (measured — a 60s chunk lost the last sentence of an 84s
+        # recording that 30s chunks transcribed fine). Files shorter than
         # chunk_duration are a single chunk, so short dictations are unaffected.
-        raw = getattr(M.transcribe(path, chunk_duration=60.0, overlap_duration=15.0), "text", "")
+        raw = getattr(M.transcribe(path, chunk_duration=30.0, overlap_duration=5.0), "text", "")
     raw = re.sub(r"\s+", " ", raw).strip()
     if dur is not None and dur > 10 and len(raw) < dur * MIN_CHARS_PER_SECOND:
         raise ValueError(f"degenerate output: {len(raw)} chars for {dur:.1f}s")

@@ -125,11 +125,18 @@ reads as sentences. The lookbehind means an ellipsis (`toss...`) or decimal is n
 touched. Trade-off: chaining several one-sentence dictations back-to-back yields no
 separators — add periods by hand if you're composing a paragraph that way.
 
-## D. Trailing space
+## D. Joining at the cursor (not a cleanup rule)
 
-`postprocess` appends a single trailing space to a non-empty result, so
-consecutive dictations join cleanly and your cursor lands after the word — never
-jammed against it.
+`postprocess` emits **no trailing space**. The app decides how to attach a
+dictation to whatever is already before the cursor: a chained dictation that lands
+right after a word gets `". "` (closing the previous one — `"there. how"`), text
+after `.!?` or a comma gets `" "`, and a cursor already sitting on whitespace or an
+empty field gets nothing.
+
+This lives in the app, not here, on purpose. An earlier design appended a trailing
+space and then *backspaced it away* to make the inserted period hug the word — but a
+synthesized delete that loses the race leaves `"there . how"`. Emitting nothing to
+delete removes the failure entirely.
 
 ---
 
