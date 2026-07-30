@@ -75,18 +75,28 @@ class HistoryWindowController: NSWindowController {
     }
 
     func loadHistory() {
-        let url = URL(string: "http://localhost:8000/history?limit=100")!
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-                print("Failed to load history: \(error?.localizedDescription ?? "bad response")")
-                return
+        Task { [weak self] in
+            do {
+                let entries = try await HistoryStore.shared.history(limit: 100)
+                let rows: [[String: Any]] = entries.map { entry in
+                    var row: [String: Any] = [
+                        "id": entry.id,
+                        "text": entry.text,
+                        "audio_path": entry.audioPath,
+                        "created_at": entry.createdAt,
+                    ]
+                    if let duration = entry.durationMilliseconds { row["duration_ms"] = duration }
+                    if let source = entry.source { row["source"] = source }
+                    return row
+                }
+                DispatchQueue.main.async {
+                    self?.transcriptions = rows
+                    self?.rebuildList()
+                }
+            } catch {
+                print("Failed to load history: \(error.localizedDescription)")
             }
-            DispatchQueue.main.async {
-                self?.transcriptions = json
-                self?.rebuildList()
-            }
-        }.resume()
+        }
     }
 
     private func rebuildList() {
@@ -479,15 +489,15 @@ class DictionaryPanelController {
     }
 }
 
-// Read-only viewer of the active cleanup rules (fetched from the backend's /rules),
-// grouped into sections. Editing is deliberately NOT here — the Copy-prompt button
-// hands your agent a ready prompt; the agent edits server/postprocess.py.
+// Read-only viewer of the active native cleanup rules, grouped into sections.
+// Editing is deliberately not here; the Copy-prompt button hands an agent the
+// implementation and fixture locations.
 class RulesPanelController {
     private var panel: NSPanel!
     private var textView: NSTextView!
     private var copyButton: NSButton!
 
-    private let prompt = "WhisperOwn's dictation cleanup runs deterministic regex in server/postprocess.py, each rule documented in POSTPROCESS.md. I want to change a cleanup rule: <describe the change>. Edit the rule, add a fixture to server/test_postprocess.py covering BOTH the fix AND a near-miss it must not touch, then run `cd server && ./.venv/bin/python test_postprocess.py` and confirm all pass."
+    private let prompt = "WhisperOwn's dictation cleanup runs deterministic regex in Sources/Postprocessor.swift. I want to change a cleanup rule: <describe the change>. Edit the rule, add Swift fixtures covering BOTH the fix AND a near-miss it must not touch, then run the focused cleanup tests."
 
     init() {
         panel = NSPanel(
@@ -554,18 +564,10 @@ class RulesPanelController {
     }
 
     private func loadRules() {
-        textView.string = "Loading…"
-        guard let url = URL(string: "http://localhost:8000/rules") else { return }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                if let data = data, let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] {
-                    self.textView.textStorage?.setAttributedString(self.render(arr))
-                } else {
-                    self.textView.string = "(couldn't reach the backend — is it running?)"
-                }
-            }
-        }.resume()
+        let rules = Postprocessor.rules.map {
+            ["section": $0.section, "name": $0.name, "desc": $0.description]
+        }
+        textView.textStorage?.setAttributedString(render(rules))
     }
 
     private func render(_ rules: [[String: String]]) -> NSAttributedString {
@@ -591,3 +593,81 @@ class RulesPanelController {
     }
 }
 
+
+// MARK: - Local Performance
+
+final class PerformancePanelController: @unchecked Sendable {
+    private let panel: NSPanel
+    private let metrics = NSTextField(wrappingLabelWithString: "")
+
+    init() {
+        panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 390, height: 250),
+            styleMask: [.titled, .closable, .nonactivatingPanel, .hudWindow],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "Performance"
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.appearance = NSAppearance(named: .darkAqua)
+        panel.level = .floating
+
+        let content = NSView(frame: panel.contentView!.bounds)
+        let title = NSTextField(labelWithString: "Stop speaking → paste")
+        title.font = NSFont.systemFont(ofSize: 19, weight: .semibold)
+        let note = NSTextField(wrappingLabelWithString: "Measured locally on this Mac. No timing or transcript data leaves WhisperOwn.")
+        note.font = NSFont.systemFont(ofSize: 12)
+        note.textColor = .secondaryLabelColor
+        metrics.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        metrics.textColor = .labelColor
+
+        for view in [title, note, metrics] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            title.topAnchor.constraint(equalTo: content.topAnchor, constant: 22),
+            title.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 22),
+            title.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -22),
+            note.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 6),
+            note.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+            note.trailingAnchor.constraint(equalTo: title.trailingAnchor),
+            metrics.topAnchor.constraint(equalTo: note.bottomAnchor, constant: 22),
+            metrics.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+            metrics.trailingAnchor.constraint(equalTo: title.trailingAnchor),
+        ])
+        panel.contentView = content
+    }
+
+    func showPanel() {
+        metrics.stringValue = "Loading…"
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        Task { [weak self] in
+            let summary = await TimingStore.shared.summary()
+            let latest = summary.latest
+            let value: String
+            if summary.sampleCount == 0 {
+                value = "No completed dictations yet."
+            } else {
+                value = """
+                samples   \(summary.sampleCount)
+                median    \(summary.medianMS) ms
+                p95       \(summary.p95MS) ms
+
+                latest    \(latest?.totalMS ?? 0) ms
+                ├─ audio finalize   \(latest?.audioFinalizeMS ?? 0) ms
+                ├─ inference        \(latest?.inferenceMS ?? 0) ms
+                ├─ cleanup/history  \(latest?.cleanupAndHistoryMS ?? 0) ms
+                └─ paste issue      \(latest?.pasteIssueMS ?? 0) ms
+                """
+            }
+            DispatchQueue.main.async {
+                self?.metrics.stringValue = value
+            }
+        }
+    }
+}

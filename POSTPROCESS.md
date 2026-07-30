@@ -1,34 +1,33 @@
 # Post-processing rules
 
-Every transcription passes through `server/postprocess.py` before it's pasted.
-The pipeline is **deterministic string surgery — it never rewrites your words with
-an LLM.** It only removes artifacts real dictation produces (silence
-hallucinations, fillers, stutters, echoes) and applies your dictionary.
+Every transcription passes through `Sources/Postprocessor.swift` before it is
+pasted. The pipeline is **deterministic string surgery — it never rewrites your
+words with an LLM.** It only removes mechanical dictation artifacts and applies
+your dictionary.
 
-**How to manage these:** edit `server/postprocess.py` by hand or via your LLM —
-each rule below maps to one commented function. After any change, run the guard:
+Edit the Swift implementation by hand or via your agent. After a change, run:
 
 ```sh
-cd server && ./.venv/bin/python test_postprocess.py   # the fixtures — the real check
+swift test --filter PostprocessorTests
 ```
 
-The fixtures verify *behavior*, not structure, and every rule is **idempotent**
-(`postprocess(postprocess(x)) === postprocess(x)`). If a fixture goes red, you
-broke the case in its comment. This test — not a rule count — is what keeps edits
-honest.
+The 81 fixtures in `Tests/Fixtures/postprocess.json` verify behavior rather than
+source structure, and each is checked for idempotency
+(`process(process(x)) == process(x)`). The suite also locks in near-misses that a
+rule must not alter.
 
 ---
 
 ## Pipeline order
 
-```
-postprocess(text)
-  ├─ lexicalNormalize   → lowercase (acronyms preserved) + dictionary replace
-  └─ structuralCleanup  → steps 2–9 below, then a single trailing space
+```text
+process(text)
+  ├─ lexicalNormalize  → lowercase (acronyms preserved) + dictionary replacement
+  └─ structural rules  → the ordered steps below, with no trailing whitespace
 ```
 
-`lexicalNormalize` runs first (so structural rules see lowercased text), then the
-structural steps run in this exact order (some loop to a fixpoint):
+Lexical normalization runs first so structural rules see lowercased text. Some
+structural rules loop to a fixpoint.
 
 ---
 
@@ -48,11 +47,11 @@ Each `dictionary.json` entry `"heard": "meant"` is applied **word-boundary
 anchored** — `\b<escaped>\b`, case-insensitive. The `\b` matters: without it,
 a short key like `cel` would corrupt `cancel`/`excel`. Keys starting with `_` are
 treated as comments, not rules.
-- e.g. `wisper → whisper`, `get hub → github`. See [the dictionary](../dictionary.example.json).
+- e.g. `wisper → whisper`, `get hub → github`. See [dictionary.example.json](dictionary.example.json).
 
 ---
 
-## B. Structural — `structuralCleanup` (steps 2–9)
+## B. Structural cleanup
 
 ### Step 2 — strip asterisk sound-tags
 `/\*[^*\n]*\*/g → ""`
@@ -98,21 +97,18 @@ a sentence: articles + coordinating conjunctions + first-person openers —
 auxiliaries, prepositions, and intentional doublings like `blah, blah` / `no, no`)
 is left alone. Looped so `the. the. the` fully collapses.
 
-### Steps 6–8 — the "thank you" silence hallucination
-ASR invents `"thank you."` on silence. The discriminator is that a **hallucinated**
-one is always its own period-terminated segment, while a **real** one flows into a
-sentence (`thank you for…`, `thank you bro`). So each rule only fires on a
-standalone segment:
-- **Step 6 — trailing:** `/(^|[.!?…]|\*[^*]*\*)\s*(?:thank\s*you|you)\.?\s*$/i` — peels a trailing `thank you`/bare `you` at the very end. `"...to thank you"` (no boundary before `thank`) and `"i love you"` (no boundary before `you`) are safe.
-- **Step 7 — leading:** `/^\s*thank\s*you\.\s+(?=[a-z])/i` — peels a leading `thank you.` with a real word after. The mandatory period is the discriminator.
-- **Step 8 — mid-record:** `/([.!?…]|\*[^*]*\*)\s+thank\s*you\.(?=\s+[a-z])/gi` — strips a `thank you.` wedged between a real boundary and a lowercase continuation. `thank you bro/everyone` (no period) is never touched.
-All three are looped to a fixpoint.
+### Preserving spoken “thank you”
 
-### Step 9 — emptiness normalize
-Trims orphaned leading/trailing space/comma/dash runs (never a real trailing
-period). Then an **emptiness test** on a throwaway copy: if the only content was
-filler (`thank you` / `you` / sound-tags / `uh`/`um` / punctuation), the whole
-record was silence → returns `""` (the app pastes nothing).
+The previous pipeline deleted standalone `thank you` segments as presumed silence
+hallucinations. Real use proved that unsafe: a spoken closing “thank you” was
+removed from transcription 14627. Native cleanup therefore preserves `thank you`
+and bare `you` everywhere. Ambiguous speech is kept rather than silently erased.
+
+### Emptiness normalize
+
+Trims orphaned leading/trailing space, comma, and dash runs. It returns `""` only
+when nothing remains after unambiguous noise removal (sound tags, spoken
+`uh`/`um`, and punctuation). Meaningful words are never used as a silence signal.
 
 ---
 
@@ -122,8 +118,8 @@ record was silence → returns `""` (the app pastes nothing).
 `"that's the ball game." → "that's the ball game"`. `?` and `!` are kept (they carry
 tone), as is every *internal* period, so a genuinely multi-sentence dictation still
 reads as sentences. The lookbehind means an ellipsis (`toss...`) or decimal is never
-touched. Trade-off: chaining several one-sentence dictations back-to-back yields no
-separators — add periods by hand if you're composing a paragraph that way.
+touched. When dictations are chained, the paste layer inserts the separator before
+the next transcript.
 
 ## D. Joining at the cursor (not a cleanup rule)
 
@@ -140,6 +136,6 @@ delete removes the failure entirely.
 
 ---
 
-*Editing tip: add the smallest fenced rule that fixes your case, add a fixture to
-`test_postprocess.py` capturing both the fix AND a near-miss it must NOT touch,
-then run the suite. The near-miss fixture is what stops a rule from over-reaching.*
+*Editing tip: add the smallest fenced rule that fixes your case, add fixtures for
+both the desired behavior and a near-miss it must not touch, then run the focused
+Swift suite. The near-miss is what stops a rule from over-reaching.*

@@ -1,4 +1,4 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.0
 import PackageDescription
 
 // A plain SwiftPM executable — the standard way to build a multi-file Swift app
@@ -7,8 +7,21 @@ import PackageDescription
 // frameworks (AppKit, AVFoundation, Carbon) link automatically from their imports.
 let package = Package(
     name: "WhisperOwn",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
+    dependencies: [
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.15.5"),
+    ],
     targets: [
-        .executableTarget(name: "WhisperOwn", path: "Sources"),
-    ]
+        .executableTarget(
+            name: "WhisperOwn",
+            dependencies: [.product(name: "FluidAudio", package: "FluidAudio")],
+            path: "Sources"
+        ),
+        .testTarget(
+            name: "WhisperOwnTests",
+            dependencies: ["WhisperOwn"],
+            resources: [.process("Fixtures")]
+        ),
+    ],
+    swiftLanguageModes: [.v5]
 )

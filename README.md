@@ -3,55 +3,43 @@
 # WhisperOwn
 
 <p align="center">
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-Apple_silicon-111?logo=apple">
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111?logo=apple">
+  <img alt="Apple silicon" src="https://img.shields.io/badge/Mac-Apple_silicon-111?logo=apple">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2dd4bf">
-  <img alt="tests" src="https://img.shields.io/badge/tests-162_passing-3fce7a">
   <img alt="local" src="https://img.shields.io/badge/audio-100%25_local-e8a34c">
-  <img alt="lang" src="https://img.shields.io/badge/Swift_+_Python-2_parts-8fa3b8">
+  <img alt="Swift" src="https://img.shields.io/badge/runtime-Swift-f05138?logo=swift">
 </p>
 
-**A whisper you own.** Press the Globe key. Talk. Press it again — your words are
-pasted where your cursor is, already cleaned up. Everything runs **locally on your
-Mac's own silicon**: no cloud, no accounts, no telemetry. Your audio and the
-compute never leave the machine. (The name nods to Wispr Flow — this is the
-self-hosted answer to it.)
-
-It's two parts: a small macOS menubar app (Swift) and one local backend (Python) that
-transcribes on your GPU and cleans up the text. Both on localhost.
+**A whisper you own.** Press Globe, talk, press it again, and the cleaned
+transcript is pasted at your cursor. No cloud, accounts, subscriptions, or
+telemetry. Audio, transcription, cleanup, history, and paste all run in one
+native macOS process.
 
 <p align="center"><img src="docs/assets/how-it-works.png" alt="1 press globe, 2 talk, 3 press globe again, 4 it's typed at your cursor" width="100%"></p>
 
-## Why this exists
+## What it is
 
-Commercial dictation (Wispr Flow, Superwhisper, macOS dictation) is cloud-bound,
-slow to start, subscription-gated, or mangles technical vocabulary. This one is:
-
-- **Fast.** Parakeet on Apple Silicon transcribes a typical dictation in well under
-  a second (~50 ms for a 4 s clip, ~500 ms for a full minute on an M4 Max) — measured.
-- **Local.** The model runs on your Mac's GPU via MLX. No network, no GPU box,
-  nothing to reach. (First launch downloads the model once; after that it's offline.)
-- **Honest about cleanup.** A deterministic pipeline strips silence-hallucinations
-  ("thank you."), fillers, restart-stutters, and echoes — and it **never rewrites
-  your words with an LLM.** See [POSTPROCESS.md](POSTPROCESS.md).
-- **Small.** A menubar app and one Python file's worth of backend. Nothing to run
-  but a single login agent.
+- **Fast local transcription.** Parakeet Unified runs through Core ML on Apple
+  silicon and stays loaded while WhisperOwn is open.
+- **Deterministic cleanup.** Regex rules remove fillers and restart artifacts;
+  there is no LLM rewrite. The rules are visible from the menubar and documented
+  in [POSTPROCESS.md](POSTPROCESS.md).
+- **Recoverable.** Every dictation is also saved as a WAV. Failed
+  transcriptions can be replayed or retried.
+- **Inspectable.** History is SQLite, personal vocabulary is JSON, and local
+  stop-to-paste p50/p95 timings are available from **Performance…**.
 
 ## Requirements
 
-- **Apple Silicon Mac** (M1 or newer). The model runs on the GPU via MLX — Intel
-  Macs are not supported.
-- **macOS 13 Ventura or later** (the System Settings steps below use the modern
-  layout; developed on macOS 26).
-- **Xcode Command Line Tools** — `xcode-select --install`. Needed to compile the app.
-- **Python 3.10+** (the system `python3` on a current macOS is fine).
+- Apple silicon Mac (M1 or newer)
+- macOS 14 Sonoma or later
+- Xcode Command Line Tools: `xcode-select --install`
+- About 594 MB for the speech model
 
----
+No Python, Homebrew, background service, localhost port, or globally installed
+package is required.
 
-## Setup
-
-Get the code, run one command, then two macOS settings.
-
-### 1. Get the code + install
+## Install from source
 
 ```sh
 git clone https://github.com/dannyboy-ai/whisperown.git
@@ -59,145 +47,133 @@ cd whisperown
 ./install.sh
 ```
 
-`install.sh` creates the Python backend (a virtualenv + the transcription deps), installs a
-login **launch agent** that keeps it warm at `127.0.0.1:8000`, and builds the app
-into `/Applications`. The first time the agent starts it downloads the Parakeet model
-(a few hundred MB) — after that it's fully offline. Re-run `./install.sh` anytime
-after a pull; it's idempotent.
+The installer builds one Swift app, signs it with a local identity when one is
+available (otherwise ad hoc), copies it to `/Applications`, and opens it. Re-run
+the same command after pulling an update.
 
-Then open it:
+WhisperOwn then guides you through:
 
-```sh
-open /Applications/WhisperOwn.app
-```
+1. **Speech model.** A one-time 594 MB download with progress, retry, and
+   cancellation. The model is stored under WhisperOwn's Application Support
+   directory and validated before use.
+2. **Microphone.** Used only to record the local WAV.
+3. **Accessibility.** Used to observe Globe globally and paste into the focused
+   app.
+4. **Globe key.** Set **System Settings → Keyboard → “Press 🌐 key to” → “Do
+   Nothing”** so macOS does not open its emoji/input-source action too.
 
-A small icon appears in your menubar. There's no Dock icon and no window — this is a
-menubar-only app. **On first launch a Permissions Guide opens** and walks you through
-the next two steps one at a time (no permission prompt fires until you click the step
-it belongs to). Reopen it anytime from the menubar → **Permissions Guide…**.
+Without a stable signing identity, rebuilding changes the app's fingerprint and
+macOS may require Accessibility to be toggled again. `build.sh` automatically
+uses an Apple Development identity when present; set `WHISPEROWN_SIGN_ID` to
+choose one explicitly.
 
-### 2. Free up the Globe key  ← the step everyone forgets
+## Use
 
-WhisperOwn's record toggle **is** the Globe key (🌐, bottom-left of a Mac keyboard;
-on keyboards without it, the **Fn** key is the same key). By default macOS binds that
-key to the emoji picker or input-source switching, so if you don't reassign it,
-pressing Globe pops up emoji *and* fights the app.
-
-> **System Settings → Keyboard →** the **"Press 🌐 key to"** dropdown → choose
-> **"Do Nothing."**
-
-It doesn't affect your F1–F12 keys — only the special single-press Globe action.
-
-### 3. Grant two permissions
-
-The first time you press Globe to record, macOS will ask for these. Both are required:
-
-- **Microphone** — to hear you. Prompted on first record; approve it.
-- **Accessibility** — the important one. It lets the app *see* the Globe keypress
-  system-wide and *paste* into other apps. Grant it under **System Settings → Privacy
-  & Security → Accessibility** (toggle **WhisperOwn** on). The app deep-links you
-  straight to this pane and auto-relaunches within a second of the grant.
-
-  If you have an **Apple Development / Developer ID** signing identity (from Xcode or a
-  paid account), `build.sh` auto-detects and signs with it, and the Accessibility
-  grant **persists across rebuilds** — grant it once. Without any identity it falls
-  back to **ad-hoc** signing, where each rebuild changes the binary's fingerprint and
-  invalidates the grant, so you must re-toggle WhisperOwn after every rebuild.
-  (`security find-identity -v -p codesigning` shows what you have; set
-  `WHISPEROWN_SIGN_ID="<name>"` to force one.)
-
-### 4. Dictate
-
-Press **Globe** — the menubar icon turns red (recording). Talk. Press **Globe** again
-— a beat later, your cleaned-up text lands at the cursor, wherever you are. Re-paste
-the last one anytime with **Ctrl+Cmd+V**.
-
----
-
-## Everyday use
+Press **Globe/Fn** to start recording; the menubar microphone turns red. Press it
+again to transcribe and paste. Use **Ctrl+Cmd+V** to paste the last transcript
+again.
 
 | Menu item | What it does |
 |---|---|
-| **Show History** | Your past dictations — play back the audio, re-copy the text. |
-| **Re-transcribe last** / **Reveal recording in Finder** | Recover a dictation if transcription failed. |
-| **Dictionary…** | Your personal "it always mishears X → Y" fixes (view + add). |
-| **Cleanup Rules…** | View the active post-processing rules (read-only; edit via your agent — see [POSTPROCESS.md](POSTPROCESS.md)). |
-| **Permissions Guide…** | Re-open the first-run permissions walkthrough anytime. |
+| **Show History** | Browse transcript text and replay saved audio. |
+| **Re-transcribe last** | Retry the most recent WAV after a failure. |
+| **Reveal recording in Finder** | Open the latest recording on disk. |
+| **Dictionary…** | Add whole-word `heard → meant` replacements. |
+| **Cleanup Rules…** | Inspect the active deterministic cleanup rules. |
+| **Speech Model…** | View model readiness or retry a failed download. |
+| **Performance…** | View local stop-to-paste median, p95, and the latest phase breakdown. |
+| **Open at Login** | Register/unregister the app with macOS `SMAppService`. |
+| **Permissions Guide…** | Reopen the macOS setup walkthrough. |
 
-If the backend is ever unreachable, a dictation fails **visibly** (the icon flashes
-amber) and the WAV is saved — recover it with **Re-transcribe last**. There is no
-silent cloud fallback; a failure is always one you can see and replay.
+An inference or history failure flashes the icon amber and leaves the WAV on
+disk. There is no cloud fallback.
 
-## Customizing
+## Architecture
 
-- **Dictionary** — the fastest lever. From the menubar, add `heard → meant` pairs for
-  words the model reliably gets wrong (names, jargon, your own coinages). Applied as
-  whole-word replacements. This is *your* data and lives outside the repo.
-- **`server/postprocess.py`** — the deterministic cleanup pipeline. Every rule is
-  documented in plain English in [POSTPROCESS.md](POSTPROCESS.md). Edit by hand or
-  hand it to your LLM, then run the guard:
-  ```sh
-  cd server && ./.venv/bin/python test_postprocess.py
-  ```
-
-## How it fits together
-
-```
-┌─ menubar app (Swift) ─┐   wav path   ┌─ backend (Python :8000) ───────┐
-│ Globe hotkey          ├─────────────►│ Parakeet-MLX transcribe (GPU)  │
-│ record 16kHz mono     │              │ postprocess (fillers, stutters,│
-│ paste at cursor       │◄─────────────┤   dictionary)                  │
-└───────────────────────┘    text +    │ SQLite history                 │
-                             history    └────────────────────────────────┘
+```text
+microphone
+  → 16 kHz samples ─────────────→ FluidAudio / Parakeet Unified
+  → recoverable WAV                    ↓
+                                deterministic Swift cleanup
+                                         ↓
+                               SQLite history + cursor paste
 ```
 
-Both live on the same Mac and share the recordings folder, so the app hands the
-backend the path to the WAV it just wrote — no audio is copied over the socket.
+The live path sends the retained in-memory samples directly to FluidAudio; it
+does not reopen the WAV. The model manager is loaded once and reused.
 
-The app only ever talks to its own localhost backend. Nothing reaches the network
-(except the one-time model download on first run).
+Application data:
+
+```text
+~/Library/Application Support/WhisperOwn/
+├── Models/
+├── recordings/
+├── dictionary.json
+├── whisperown.db
+├── timings.jsonl
+└── whisperown.log
+```
+
+The only routine network access is the first-run model download.
+
+## Development
+
+```sh
+swift build
+swift test
+```
+
+`Sources/Postprocessor.swift` is the cleanup implementation.
+`Tests/Fixtures/postprocess.json` is the behavior contract; every fixture is also
+checked for idempotency. Add both the desired case and a near-miss before
+changing a rule.
+
+The optional real-model smoke check uses a local WAV and does not commit audio:
+
+```sh
+WHISPEROWN_SMOKE_WAV=/path/to/recording.wav \
+  swift test --filter testRealAudioPipelineWhenFixtureIsProvided
+```
 
 ## Troubleshooting
 
-- **Pressing Globe pops up emoji / switches my keyboard language.** You skipped
-  step 2 — set "Press 🌐 key to" → "Do Nothing."
-- **Nothing happens when I press Globe.** Accessibility isn't granted (or was
-  invalidated by a rebuild). Re-toggle WhisperOwn under Privacy & Security →
+- **Globe opens emoji or switches input source:** set “Press 🌐 key to” to “Do
+  Nothing.”
+- **Globe does nothing:** reopen **Permissions Guide…** and check
   Accessibility.
-- **Recording works but nothing pastes.** Same Accessibility grant — it powers both
-  the keypress capture and the paste.
-- **Icon flashes amber.** The backend isn't reachable. It's a launch agent, so
-  `launchctl list | grep whisperown` and re-`load` it if needed (the log is at
-  `~/Library/Logs/whisperown.log`). Your recording is safe — use **Re-transcribe last**.
-
-## Docs
-
-- [POSTPROCESS.md](POSTPROCESS.md) — every cleanup rule in plain English.
+- **Recording works but nothing pastes:** re-toggle Accessibility for the
+  installed `/Applications/WhisperOwn.app`.
+- **The icon flashes amber:** use **Re-transcribe last**. Details are in
+  `~/Library/Application Support/WhisperOwn/whisperown.log`.
+- **The model download failed:** open **Speech Model…** and retry. Partial
+  downloads are resumable.
 
 ## Privacy
 
-No accounts, no telemetry, no network calls after the one-time model download. Audio,
-transcripts, and history stay in `~/Library/Application Support/WhisperOwn/` on your
-machine. Deleting that folder erases everything.
+No accounts and no telemetry. Audio, transcripts, history, dictionary entries,
+models, logs, and timing records stay under
+`~/Library/Application Support/WhisperOwn/`. Deleting that directory erases
+them.
 
 ## Uninstall
 
-Removes everything cleanly, in reverse of setup:
+First turn off **Open at Login** from the WhisperOwn menu, then:
 
 ```sh
-# 1. stop + remove the backend launch agent
-launchctl unload ~/Library/LaunchAgents/com.whisperown.server.plist
-rm ~/Library/LaunchAgents/com.whisperown.server.plist
-
-# 2. remove the app
 rm -rf /Applications/WhisperOwn.app
-
-# 3. erase all recordings, history, and settings
 rm -rf ~/Library/Application\ Support/WhisperOwn/
 ```
 
-Finally, remove **WhisperOwn** from System Settings → Privacy & Security →
-Accessibility and Microphone.
+Remove WhisperOwn from **System Settings → Privacy & Security → Accessibility**
+and **Microphone** if you also want to clear macOS's permission entries.
+
+## Third-party components
+
+- [FluidAudio](https://github.com/FluidInference/FluidAudio) provides the
+  Core ML speech runtime under Apache-2.0.
+- The downloaded
+  [Parakeet Unified model](https://huggingface.co/nvidia/parakeet-unified-en-0.6b)
+  is maintained and licensed upstream by NVIDIA.
 
 ## Expectations
 

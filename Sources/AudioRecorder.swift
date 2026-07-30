@@ -1,12 +1,23 @@
 import Cocoa
 import AVFoundation
 
+struct AudioRecording {
+    let url: URL
+    let samples: [Float]
+
+    var durationMilliseconds: Int {
+        Int((Double(samples.count) / 16_000) * 1_000)
+    }
+}
+
 class AudioRecorder {
     private var audioEngine: AVAudioEngine?
     private var audioFile: AVAudioFile?
     private var outputURL: URL?
     private var converter: AVAudioConverter?
     private var tapInstalled = false
+    private var recordedSamples: [Float] = []
+    private let samplesLock = NSLock()
 
     // The ASR model expects 16 kHz mono. Record natively at that rate so there's no
     // resample pass and recordings are ~3x smaller on disk.
@@ -24,6 +35,7 @@ class AudioRecorder {
     }
 
     func startRecording() {
+        recordedSamples = []
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
@@ -90,6 +102,12 @@ class AudioRecorder {
                 return
             }
             if outBuffer.frameLength == 0 { return }
+            if let channel = outBuffer.floatChannelData?[0] {
+                let samples = UnsafeBufferPointer(start: channel, count: Int(outBuffer.frameLength))
+                self.samplesLock.lock()
+                self.recordedSamples.append(contentsOf: samples)
+                self.samplesLock.unlock()
+            }
             do {
                 try outFile.write(from: outBuffer)
             } catch {
@@ -114,7 +132,7 @@ class AudioRecorder {
         }
     }
 
-    func stopRecording() -> URL? {
+    func stopRecording() -> AudioRecording? {
         let resultURL = outputURL
 
         // Stop the engine while the file is STILL open, so the last in-flight tap
@@ -132,7 +150,12 @@ class AudioRecorder {
         }
         audioEngine = nil
         converter = nil
-        return resultURL
+        guard let resultURL else { return nil }
+        samplesLock.lock()
+        let samples = recordedSamples
+        recordedSamples = []
+        samplesLock.unlock()
+        return AudioRecording(url: resultURL, samples: samples)
     }
 
     private func getDataDirectory() -> URL {

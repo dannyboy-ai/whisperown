@@ -41,6 +41,12 @@ else
     echo "Signed ad-hoc — no stable identity found; Accessibility must be re-granted after each rebuild"
 fi
 
+# Stop a running copy before replacing its bundle. Otherwise `open` after an
+# update keeps the old in-memory process and the user is not actually testing the
+# newly installed binary.
+osascript -e 'tell application id "com.whisperown.app" to quit' 2>/dev/null || true
+sleep 0.3
+
 # Install a REAL copy in /Applications (NOT a symlink). An ad-hoc-signed app
 # launched from a symlink into a user folder (~/Desktop/...) can't register a
 # stable Accessibility TCC entry — it prompts but never appears in the list, so

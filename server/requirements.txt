@@ -1,7 +1,0 @@
-# WhisperOwn backend (Apple Silicon). The whole backend is this one Python
-# process — transcription (Parakeet-MLX on the GPU), cleanup, and SQLite history.
-# stdlib does the rest (http.server, sqlite3), so these four are the only deps.
-parakeet-mlx
-mlx
-soundfile
-librosa

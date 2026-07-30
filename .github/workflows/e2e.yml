@@ -3,10 +3,9 @@
 # checked-out repo is mounted read-only, the VM runs whisperown's real checks, and
 # it is destroyed after every job — untrusted code never touches the host.
 #
-# MINIMAL DRAFT: proves the pipeline exercises real whisperown code end-to-end. The
-# base VM image has swift + python3 (the stdlib unit tests already run in ci.yml).
-# The heavy e2e (Parakeet model + MLX + TCC + real inject-WAV→paste) needs a custom
-# VM image with whisperown's runtime.
+# MINIMAL DRAFT: proves the native source tree builds and its deterministic
+# cleanup/history checks pass inside an isolated Mac. A full microphone → model →
+# paste check still needs a purpose-built image with a permitted audio fixture.
 #
 # SAFETY: push-to-main only, never `pull_request` — this must never run untrusted
 # fork code.
@@ -52,19 +51,19 @@ jobs:
               cd "/Volumes/My Shared Files/repo"
               echo "in-VM: $(hostname) / macOS $(sw_vers -productVersion)"
 
-              echo "--- [1/3] clean-room build of the app (SwiftPM) ---"
+              echo "--- [1/3] clean-room release build (SwiftPM) ---"
               # Repo is mounted read-only, so send build artifacts to a writable path.
-              swift build --build-path /tmp/wo-build
-              echo "    OK: app builds in a clean VM"
+              swift build -c release --build-path /tmp/wo-build
+              echo "    OK: native app builds in a clean VM"
 
-              echo "--- [2/3] backend sanity (cleanup tests + parse) ---"
-              ( cd server && python3 test_postprocess.py >/dev/null && echo "    OK: cleanup pipeline" )
-              python3 -m py_compile server/whisperown_server.py
-              echo "    OK: whisperown_server.py parses"
+              echo "--- [2/3] native cleanup + history contracts ---"
+              swift test --build-path /tmp/wo-build >/dev/null
+              echo "    OK: Swift tests pass"
 
               echo "--- [3/3] structural wiring present ---"
-              for f in Package.swift Sources/main.swift build.sh server/postprocess.py \
-                       server/whisperown_server.py server/db.py server/com.whisperown.server.plist; do
+              for f in Package.swift Sources/FluidTranscriber.swift \
+                       Sources/Postprocessor.swift Sources/HistoryStore.swift \
+                       Sources/ModelDownloadWindow.swift build.sh install.sh; do
                 if [ -f "$f" ]; then echo "    OK: $f"; else echo "    MISSING: $f"; exit 1; fi
               done
               echo "ALL VM CHECKS PASSED"
