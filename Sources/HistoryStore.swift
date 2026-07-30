@@ -1,12 +1,19 @@
 import Foundation
 import SQLite3
 
+
+enum HistoryStatus: String, Sendable {
+    case completed
+    case failed
+}
 struct HistoryEntry: Sendable {
     let id: Int64
     let text: String
     let audioPath: String
     let durationMilliseconds: Int?
     let source: String?
+    let status: HistoryStatus
+    let errorMessage: String?
     let createdAt: String
 }
 
@@ -56,6 +63,16 @@ actor HistoryStore {
         if try !Self.columnNames(database).contains("source") {
             try Self.execute(database, sql: "ALTER TABLE transcriptions ADD COLUMN source TEXT")
         }
+        let columns = try Self.columnNames(database)
+        if !columns.contains("status") {
+            try Self.execute(
+                database,
+                sql: "ALTER TABLE transcriptions ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'"
+            )
+        }
+        if !columns.contains("error_message") {
+            try Self.execute(database, sql: "ALTER TABLE transcriptions ADD COLUMN error_message TEXT")
+        }
     }
 
     deinit {
@@ -69,7 +86,7 @@ actor HistoryStore {
         durationMilliseconds: Int?,
         source: String
     ) throws -> Int64 {
-        let sql = "INSERT INTO transcriptions (audio_path, text, duration_ms, source) VALUES (?, ?, ?, ?)"
+        let sql = "INSERT INTO transcriptions (audio_path, text, duration_ms, source, status) VALUES (?, ?, ?, ?, 'completed')"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
             throw currentError()
@@ -89,8 +106,77 @@ actor HistoryStore {
         return sqlite3_last_insert_rowid(database)
     }
 
+    @discardableResult
+    func saveFailure(
+        audioPath: String,
+        durationMilliseconds: Int?,
+        source: String,
+        errorMessage: String
+    ) throws -> Int64 {
+        let sql = """
+        INSERT INTO transcriptions
+            (audio_path, text, duration_ms, source, status, error_message)
+        VALUES (?, '', ?, ?, 'failed', ?)
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw currentError()
+        }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_text(statement, 1, audioPath, -1, transient)
+        if let durationMilliseconds {
+            sqlite3_bind_int64(statement, 2, Int64(durationMilliseconds))
+        } else {
+            sqlite3_bind_null(statement, 2)
+        }
+        sqlite3_bind_text(statement, 3, source, -1, transient)
+        sqlite3_bind_text(statement, 4, errorMessage, -1, transient)
+
+        guard sqlite3_step(statement) == SQLITE_DONE else { throw currentError() }
+        return sqlite3_last_insert_rowid(database)
+    }
+
+    func resolveFailure(
+        id: Int64,
+        text: String,
+        durationMilliseconds: Int?,
+        source: String
+    ) throws {
+        let sql = """
+        UPDATE transcriptions
+        SET text = ?, duration_ms = COALESCE(?, duration_ms), source = ?,
+            status = 'completed', error_message = NULL
+        WHERE id = ? AND status = 'failed'
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw currentError()
+        }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_text(statement, 1, text, -1, transient)
+        if let durationMilliseconds {
+            sqlite3_bind_int64(statement, 2, Int64(durationMilliseconds))
+        } else {
+            sqlite3_bind_null(statement, 2)
+        }
+        sqlite3_bind_text(statement, 3, source, -1, transient)
+        sqlite3_bind_int64(statement, 4, id)
+
+        guard sqlite3_step(statement) == SQLITE_DONE else { throw currentError() }
+        guard sqlite3_changes(database) == 1 else {
+            throw HistoryStoreError.execute("failed recording no longer exists")
+        }
+    }
+
     func history(limit: Int = 100) throws -> [HistoryEntry] {
-        let sql = "SELECT id, text, audio_path, duration_ms, source, created_at FROM transcriptions ORDER BY created_at DESC LIMIT ?"
+        let sql = """
+        SELECT id, text, audio_path, duration_ms, source, status, error_message, created_at
+        FROM transcriptions
+        ORDER BY id DESC
+        LIMIT ?
+        """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
             throw currentError()
@@ -108,7 +194,10 @@ actor HistoryStore {
                     ? nil : Int(sqlite3_column_int64(statement, 3)),
                 source: sqlite3_column_type(statement, 4) == SQLITE_NULL
                     ? nil : text(statement, column: 4),
-                createdAt: text(statement, column: 5)
+                status: HistoryStatus(rawValue: text(statement, column: 5)) ?? .completed,
+                errorMessage: sqlite3_column_type(statement, 6) == SQLITE_NULL
+                    ? nil : text(statement, column: 6),
+                createdAt: text(statement, column: 7)
             ))
         }
         if sqlite3_errcode(database) != SQLITE_OK && sqlite3_errcode(database) != SQLITE_DONE {

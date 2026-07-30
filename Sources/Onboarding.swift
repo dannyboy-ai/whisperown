@@ -11,6 +11,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow!
     private var pollTimer: Timer?
     private var finished = false
+    private var showingTutorial = false
 
     private var micIcon: NSImageView!
     private var axIcon: NSImageView!
@@ -73,7 +74,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
 
         root.addArrangedSubview(separator())
 
-        finishButton = NSButton(title: "Finish", target: self, action: #selector(finishTapped))
+        finishButton = NSButton(title: "Continue", target: self, action: #selector(finishTapped))
         finishButton.bezelStyle = .rounded
         finishButton.keyEquivalent = "\r"
         finishButton.isEnabled = false
@@ -133,6 +134,141 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         row.orientation = .horizontal; row.alignment = .centerY; row.spacing = 12
         row.widthAnchor.constraint(equalToConstant: rowWidth).isActive = true
         return row
+    }
+
+    private func showTutorial() {
+        showingTutorial = true
+        pollTimer?.invalidate()
+        window.title = "WhisperOwn — Quick Start"
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = WhisperOwnBrand.ink
+
+        let root = NSStackView()
+        root.orientation = .vertical
+        root.alignment = .leading
+        root.spacing = 13
+        root.edgeInsets = NSEdgeInsets(top: 24, left: 26, bottom: 22, right: 26)
+
+        let eyebrow = label("ONE KEY. TWO PRESSES.", .systemFont(ofSize: 10.5, weight: .bold), WhisperOwnBrand.teal)
+        eyebrow.attributedStringValue = NSAttributedString(
+            string: eyebrow.stringValue,
+            attributes: [
+                .font: eyebrow.font as Any,
+                .foregroundColor: WhisperOwnBrand.teal,
+                .kern: 1.2,
+            ]
+        )
+        root.addArrangedSubview(eyebrow)
+        root.addArrangedSubview(label("You’re ready to whisper.", WhisperOwnBrand.displayFont(size: 26), .labelColor))
+        root.addArrangedSubview(label("WhisperOwn follows one simple rhythm.", .systemFont(ofSize: 13), .secondaryLabelColor))
+
+        root.addArrangedSubview(tutorialRow(
+            symbol: "cursorarrow.rays",
+            title: "Place your cursor",
+            detail: "Click wherever your words should land.",
+            tint: WhisperOwnBrand.teal
+        ))
+        root.addArrangedSubview(tutorialRow(
+            symbol: "mic.fill",
+            title: "Press Globe to record",
+            detail: "Look at the upper-right menu bar. The microphone turns red while you’re recording.",
+            tint: .systemRed
+        ))
+        root.addArrangedSubview(tutorialRow(
+            symbol: "text.cursor",
+            title: "Press Globe again",
+            detail: "Recording stops and your transcript pastes at the cursor.",
+            tint: WhisperOwnBrand.amber
+        ))
+
+        root.addArrangedSubview(shortcutCard())
+        let menuNote = label(
+            "History, retries, your dictionary, model status, and performance all live under the WhisperOwn microphone in the menu bar.",
+            .systemFont(ofSize: 12),
+            .secondaryLabelColor
+        )
+        menuNote.widthAnchor.constraint(equalToConstant: 468).isActive = true
+        root.addArrangedSubview(menuNote)
+
+        let startButton = NSButton(title: "Start using WhisperOwn", target: self, action: #selector(finishTapped))
+        startButton.bezelStyle = .rounded
+        startButton.keyEquivalent = "\r"
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        let footer = NSStackView(views: [spacer, startButton])
+        footer.orientation = .horizontal
+        footer.widthAnchor.constraint(equalToConstant: 468).isActive = true
+        root.addArrangedSubview(footer)
+
+        window.contentView = root
+        root.layoutSubtreeIfNeeded()
+        window.setContentSize(root.fittingSize)
+        window.center()
+    }
+
+    private func tutorialRow(symbol: String, title: String, detail: String, tint: NSColor) -> NSView {
+        let iconContainer = NSView()
+        iconContainer.translatesAutoresizingMaskIntoConstraints = false
+        iconContainer.wantsLayer = true
+        iconContainer.layer?.backgroundColor = tint.withAlphaComponent(0.14).cgColor
+        iconContainer.layer?.cornerRadius = 19
+        iconContainer.widthAnchor.constraint(equalToConstant: 38).isActive = true
+        iconContainer.heightAnchor.constraint(equalToConstant: 38).isActive = true
+
+        let icon = NSImageView()
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        icon.contentTintColor = tint
+        iconContainer.addSubview(icon)
+        NSLayoutConstraint.activate([
+            icon.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
+        ])
+
+        let heading = label(title, .systemFont(ofSize: 14, weight: .semibold), .labelColor)
+        let explanation = label(detail, .systemFont(ofSize: 12), .secondaryLabelColor)
+        let copy = NSStackView(views: [heading, explanation])
+        copy.orientation = .vertical
+        copy.alignment = .leading
+        copy.spacing = 2
+
+        let row = NSStackView(views: [iconContainer, copy])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 12
+        row.widthAnchor.constraint(equalToConstant: 468).isActive = true
+        return row
+    }
+
+    private func shortcutCard() -> NSView {
+        let card = NSView()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.wantsLayer = true
+        card.layer?.backgroundColor = WhisperOwnBrand.teal.withAlphaComponent(0.10).cgColor
+        card.layer?.cornerRadius = 10
+        card.widthAnchor.constraint(equalToConstant: 468).isActive = true
+        card.heightAnchor.constraint(equalToConstant: 62).isActive = true
+
+        let shortcut = label("⌃⌘V", .monospacedSystemFont(ofSize: 17, weight: .semibold), WhisperOwnBrand.teal)
+        shortcut.translatesAutoresizingMaskIntoConstraints = false
+        let explanation = label(
+            "Paste the last transcript again if the first paste lands in the wrong place.",
+            .systemFont(ofSize: 12.5),
+            .labelColor
+        )
+        explanation.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(shortcut)
+        card.addSubview(explanation)
+        NSLayoutConstraint.activate([
+            shortcut.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            shortcut.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            shortcut.widthAnchor.constraint(equalToConstant: 50),
+            explanation.leadingAnchor.constraint(equalTo: shortcut.trailingAnchor, constant: 12),
+            explanation.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            explanation.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+        ])
+        return card
     }
 
     // MARK: status
@@ -208,7 +344,13 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension")!)
     }
 
-    @objc private func finishTapped() { finish() }
+    @objc private func finishTapped() {
+        if showingTutorial {
+            finish()
+        } else {
+            showTutorial()
+        }
+    }
 
     func windowWillClose(_ notification: Notification) { finish() }
 

@@ -13,7 +13,7 @@ final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate 
         self.onCancel = onCancel
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 230),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 488),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -22,7 +22,7 @@ final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate 
         window.center()
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = NSColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 1)
+        window.backgroundColor = WhisperOwnBrand.ink
 
         super.init(window: window)
         window.delegate = self
@@ -81,15 +81,25 @@ final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate 
     private func buildContent() {
         guard let content = window?.contentView else { return }
 
-        let icon = NSImageView(image: NSImage(systemSymbolName: "waveform", accessibilityDescription: "Speech model")!)
-        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 28, weight: .medium)
-        icon.contentTintColor = .systemOrange
+        let hero = WhisperOwnBrand.heroImageView()
 
-        let title = NSTextField(labelWithString: "One local speech model")
-        title.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
+        let eyebrow = NSTextField(labelWithString: "PRIVATE SPEECH MODEL")
+        eyebrow.font = NSFont.systemFont(ofSize: 10.5, weight: .bold)
+        eyebrow.textColor = WhisperOwnBrand.teal
+        eyebrow.attributedStringValue = NSAttributedString(
+            string: eyebrow.stringValue,
+            attributes: [
+                .font: eyebrow.font as Any,
+                .foregroundColor: WhisperOwnBrand.teal,
+                .kern: 1.2,
+            ]
+        )
+
+        let title = NSTextField(labelWithString: "Your voice stays on this Mac.")
+        title.font = WhisperOwnBrand.displayFont(size: 25)
         title.textColor = .labelColor
 
-        let explanation = NSTextField(wrappingLabelWithString: "WhisperOwn needs a 594 MB model before it can record. It downloads once, runs on Apple silicon, and keeps your audio on this Mac.")
+        let explanation = NSTextField(wrappingLabelWithString: "WhisperOwn is downloading its 594 MB speech model once. After this, dictation runs locally — no account, cloud, or subscription.")
         explanation.font = NSFont.systemFont(ofSize: 13)
         explanation.textColor = .secondaryLabelColor
         explanation.maximumNumberOfLines = 3
@@ -107,36 +117,39 @@ final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate 
         actionButton = NSButton(title: "Cancel", target: self, action: #selector(actionTapped))
         actionButton.bezelStyle = .rounded
 
-        let views: [NSView] = [icon, title, explanation, progress, statusLabel, actionButton]
+        let views: [NSView] = [hero, eyebrow, title, explanation, progress, statusLabel, actionButton]
         for view in views {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
 
         NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
-            icon.topAnchor.constraint(equalTo: content.topAnchor, constant: 26),
-            icon.widthAnchor.constraint(equalToConstant: 34),
-            icon.heightAnchor.constraint(equalToConstant: 34),
+            hero.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            hero.widthAnchor.constraint(equalToConstant: 472),
+            hero.topAnchor.constraint(equalTo: content.topAnchor, constant: 22),
+            hero.heightAnchor.constraint(equalToConstant: 236),
 
-            title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 14),
-            title.topAnchor.constraint(equalTo: content.topAnchor, constant: 24),
-            title.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
+            eyebrow.leadingAnchor.constraint(equalTo: hero.leadingAnchor),
+            eyebrow.topAnchor.constraint(equalTo: hero.bottomAnchor, constant: 17),
 
-            explanation.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-            explanation.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 5),
-            explanation.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
+            title.leadingAnchor.constraint(equalTo: hero.leadingAnchor),
+            title.topAnchor.constraint(equalTo: eyebrow.bottomAnchor, constant: 4),
+            title.trailingAnchor.constraint(equalTo: hero.trailingAnchor),
 
-            progress.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
-            progress.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
-            progress.topAnchor.constraint(equalTo: explanation.bottomAnchor, constant: 22),
+            explanation.leadingAnchor.constraint(equalTo: hero.leadingAnchor),
+            explanation.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 7),
+            explanation.trailingAnchor.constraint(equalTo: hero.trailingAnchor),
+
+            progress.leadingAnchor.constraint(equalTo: hero.leadingAnchor),
+            progress.trailingAnchor.constraint(equalTo: hero.trailingAnchor),
+            progress.topAnchor.constraint(equalTo: explanation.bottomAnchor, constant: 18),
 
             statusLabel.leadingAnchor.constraint(equalTo: progress.leadingAnchor),
-            statusLabel.topAnchor.constraint(equalTo: progress.bottomAnchor, constant: 8),
-            statusLabel.trailingAnchor.constraint(equalTo: actionButton.leadingAnchor, constant: -12),
+            statusLabel.topAnchor.constraint(equalTo: progress.bottomAnchor, constant: 9),
+            statusLabel.trailingAnchor.constraint(equalTo: actionButton.leadingAnchor, constant: -16),
 
             actionButton.trailingAnchor.constraint(equalTo: progress.trailingAnchor),
-            actionButton.topAnchor.constraint(equalTo: progress.bottomAnchor, constant: 12),
+            actionButton.topAnchor.constraint(equalTo: progress.bottomAnchor, constant: 11),
         ])
     }
 

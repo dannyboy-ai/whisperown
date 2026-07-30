@@ -21,6 +21,7 @@ cp "$SCRIPT_DIR/.build/release/WhisperOwn" "$APP_BUNDLE/Contents/MacOS/WhisperOw
 # Copy Info.plist
 cp "$SCRIPT_DIR/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "$SCRIPT_DIR/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+cp "$SCRIPT_DIR/Resources/BrandHero.png" "$APP_BUNDLE/Contents/Resources/BrandHero.png"
 
 # Code signing. This is what determines whether the Accessibility grant survives
 # a rebuild. Ad-hoc ("-") binds the grant to the binary's cdhash, which changes on

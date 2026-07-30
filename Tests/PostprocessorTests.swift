@@ -60,6 +60,48 @@ final class PostprocessorTests: XCTestCase {
         XCTAssertEqual(entries.first?.text, "native history")
         XCTAssertEqual(entries.first?.durationMilliseconds, 1_250)
         XCTAssertEqual(entries.first?.source, "fluid-unified")
+        XCTAssertEqual(entries.first?.status, .completed)
+        XCTAssertNil(entries.first?.errorMessage)
+    }
+
+    func testFailedHistoryEntryCanBeRecoveredInPlace() async throws {
+        let databaseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whisperown-history-failure-\(UUID().uuidString).db")
+        defer {
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(atPath: databaseURL.path + "-wal")
+            try? FileManager.default.removeItem(atPath: databaseURL.path + "-shm")
+        }
+
+        let store = try HistoryStore(databaseURL: databaseURL)
+        let id = try await store.saveFailure(
+            audioPath: "/tmp/recoverable.wav",
+            durationMilliseconds: 2_500,
+            source: "fluid-unified",
+            errorMessage: "model unavailable"
+        )
+
+        let failedEntries = try await store.history(limit: 1)
+        var entry = try XCTUnwrap(failedEntries.first)
+        XCTAssertEqual(entry.id, id)
+        XCTAssertEqual(entry.status, .failed)
+        XCTAssertEqual(entry.errorMessage, "model unavailable")
+        XCTAssertEqual(entry.audioPath, "/tmp/recoverable.wav")
+
+        try await store.resolveFailure(
+            id: id,
+            text: "recovered transcript",
+            durationMilliseconds: nil,
+            source: "fluid-unified"
+        )
+
+        let recoveredEntries = try await store.history(limit: 1)
+        entry = try XCTUnwrap(recoveredEntries.first)
+        XCTAssertEqual(entry.id, id)
+        XCTAssertEqual(entry.status, .completed)
+        XCTAssertEqual(entry.text, "recovered transcript")
+        XCTAssertEqual(entry.durationMilliseconds, 2_500)
+        XCTAssertNil(entry.errorMessage)
     }
 
     func testRealAudioPipelineWhenFixtureIsProvided() async throws {

@@ -12,8 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var lastTranscription: String?
     private var lastWavURL: URL?
     private var historyWindow: HistoryWindowController?
-    private var dictionaryPanel: DictionaryPanelController?
-    private var rulesPanel: RulesPanelController?
+    private var settingsWindow: SettingsWindowController?
+    private var aboutWindow: AboutWindowController?
     private var onboarding: OnboardingWindowController?
     private var modelWindow: ModelDownloadWindowController?
     private var performancePanel: PerformancePanelController?
@@ -21,7 +21,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var modelState: ModelPreparationState = .preparing
     private var didPresentPermissions = false
     private var openAtLoginItem: NSMenuItem?
+    private var statusMenuItem: NSMenuItem?
+    private var pasteLastItem: NSMenuItem?
+    private var retryLastItem: NSMenuItem?
+    private var revealLastItem: NSMenuItem?
     private var hotkeyArmed = false
+    private var lastFailedHistoryID: Int64?
+    private var lastAudioDurationMilliseconds: Int?
 
     // Hard cap on a single recording. A forgotten or stuck recording otherwise
     // grows without bound (16kHz mono int16 is ~115 MB/hr). At the cap we stop and
@@ -43,37 +49,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         updateMenubarIcon(recording: false)
 
         let menu = NSMenu()
+        menu.autoenablesItems = false
 
         let titleItem = NSMenuItem(title: "WhisperOwn", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
         menu.addItem(titleItem)
+
+        let status = NSMenuItem(title: "Checking speech model…", action: nil, keyEquivalent: "")
+        status.isEnabled = false
+        statusMenuItem = status
+        menu.addItem(status)
         menu.addItem(NSMenuItem.separator())
 
-        let globeHint = NSMenuItem(title: "Press Globe (Fn) to start/stop recording", action: nil, keyEquivalent: "")
-        globeHint.isEnabled = false
-        menu.addItem(globeHint)
-
-        let repasteHint = NSMenuItem(title: "Ctrl+Cmd+V to re-paste last", action: nil, keyEquivalent: "")
-        repasteHint.isEnabled = false
-        menu.addItem(repasteHint)
-
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Show History", action: #selector(showHistory), keyEquivalent: "h"))
-        menu.addItem(NSMenuItem(title: "Re-transcribe last", action: #selector(reTranscribeLast), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Reveal recording in Finder", action: #selector(revealLastRecording), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Dictionary…", action: #selector(showDictionary), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Cleanup Rules…", action: #selector(showRules), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Speech Model…", action: #selector(showSpeechModel), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Performance…", action: #selector(showPerformance), keyEquivalent: ""))
+        let pasteItem = NSMenuItem(
+            title: "Paste Last Transcript",
+            action: #selector(rePasteLastTranscription),
+            keyEquivalent: "v"
+        )
+        pasteItem.keyEquivalentModifierMask = [.control, .command]
+        pasteItem.isEnabled = false
+        pasteLastItem = pasteItem
+        menu.addItem(pasteItem)
+        menu.addItem(NSMenuItem(title: "History…", action: #selector(showHistory), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","))
 
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Permissions Guide…", action: #selector(showPermissionsGuide), keyEquivalent: ""))
         let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin), keyEquivalent: "")
         openAtLoginItem = loginItem
         updateOpenAtLoginItem()
         menu.addItem(loginItem)
+        menu.addItem(NSMenuItem(title: "Getting Started…", action: #selector(showPermissionsGuide), keyEquivalent: ""))
+
+        let advancedItem = NSMenuItem(title: "Advanced", action: nil, keyEquivalent: "")
+        let advancedMenu = NSMenu(title: "Advanced")
+        advancedMenu.autoenablesItems = false
+        let retryItem = NSMenuItem(
+            title: "Re-transcribe Last Recording",
+            action: #selector(reTranscribeLast),
+            keyEquivalent: ""
+        )
+        retryItem.isEnabled = false
+        retryLastItem = retryItem
+        advancedMenu.addItem(retryItem)
+        let revealItem = NSMenuItem(
+            title: "Reveal Last Recording in Finder",
+            action: #selector(revealLastRecording),
+            keyEquivalent: ""
+        )
+        revealItem.isEnabled = false
+        revealLastItem = revealItem
+        advancedMenu.addItem(revealItem)
+        advancedMenu.addItem(NSMenuItem.separator())
+        advancedMenu.addItem(NSMenuItem(title: "Speech Model…", action: #selector(showSpeechModel), keyEquivalent: ""))
+        advancedMenu.addItem(NSMenuItem(title: "Performance…", action: #selector(showPerformance), keyEquivalent: ""))
+        advancedItem.submenu = advancedMenu
+        menu.addItem(advancedItem)
+
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "About WhisperOwn", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Restart", action: #selector(restart), keyEquivalent: "r"))
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit WhisperOwn", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
 
         // Edit menu so Cmd-X/C/V/A work in the Dictionary text fields. An accessory
@@ -110,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             Task { @MainActor [weak self] in self?.showSpeechModel() }
         }
         let transcriber = transcriber
+        setMenuStatus("Checking speech model…")
         Task { [weak self] in
             guard let delegate = self else { return }
             do {
@@ -129,9 +165,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     @MainActor
     private func handleModelPreparation(_ state: ModelPreparationState) {
         modelState = state
-        modelWindow?.update(state)
+        switch state {
+        case .preparing:
+            setMenuStatus("Checking speech model…")
+        case .progress:
+            setMenuStatus("Downloading speech model…")
+        case .failed:
+            setMenuStatus("Speech model unavailable")
+        case .cancelled:
+            setMenuStatus("Speech model download paused")
+        case .ready:
+            break
+        }
         guard case .ready = state else { return }
         modelReady = true
+        updateRecoveryItems()
         if modelWindow?.window?.isVisible == true {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
                 self?.modelWindow?.close()
@@ -140,6 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         } else {
             presentPermissionsIfNeeded()
         }
+        refreshReadyStatus()
         if didPresentPermissions,
            AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
            AXIsProcessTrusted() {
@@ -153,12 +202,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let micOK = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         let axOK = AXIsProcessTrusted()
         if micOK && axOK {
+            refreshReadyStatus()
             if modelReady {
                 print("WhisperOwn ready. Press Globe (Fn) to start/stop recording. Ctrl+Cmd+V to re-paste.")
             } else {
                 print("Permissions ready; local speech model is loading.")
             }
         } else {
+            setMenuStatus("Setup required")
             print("First-run: missing \(micOK ? "" : "microphone ")\(axOK ? "" : "accessibility ")— opening Permissions Guide")
             showPermissionsGuide()
         }
@@ -213,6 +264,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             button.image = img
             button.contentTintColor = nil
         }
+    }
+
+    private func setMenuStatus(_ status: String) {
+        statusMenuItem?.title = status
+    }
+
+    private func refreshReadyStatus() {
+        guard modelReady else { return }
+        let microphoneReady = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        guard microphoneReady, AXIsProcessTrusted() else {
+            setMenuStatus("Setup required")
+            return
+        }
+        setMenuStatus("Ready")
+        updateMenubarIcon(recording: false)
+    }
+
+    private func updateRecoveryItems() {
+        let recordingExists = lastWavURL.map {
+            FileManager.default.fileExists(atPath: $0.path)
+        } ?? false
+        retryLastItem?.isEnabled = modelReady && recordingExists
+        revealLastItem?.isEnabled = recordingExists
     }
 
     private func setupHotKeyMonitoring() {
@@ -285,7 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         return Unmanaged.passRetained(event)
     }
 
-    private func rePasteLastTranscription() {
+    @objc private func rePasteLastTranscription() {
         guard let text = lastTranscription else {
             print("No previous transcription to re-paste")
             return
@@ -301,6 +375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             return
         }
         isRecording = true
+        setMenuStatus("Recording…")
         updateMenubarIcon(recording: true)
         recorder.startRecording()
         let cap = DispatchWorkItem { [weak self] in self?.stopRecordingAtCap() }
@@ -313,6 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         recordingCap?.cancel()
         recordingCap = nil
         isRecording = false
+        setMenuStatus("Transcribing…")
         updateMenubarIcon(recording: false)
         let stopRequested = ProcessInfo.processInfo.systemUptime
         // Stop and transcribe the retained 16 kHz samples immediately. The WAV is
@@ -323,6 +399,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         let audioFinalized = ProcessInfo.processInfo.systemUptime
         lastWavURL = recording.url
+        lastAudioDurationMilliseconds = recording.durationMilliseconds
+        updateRecoveryItems()
         transcribeAndPaste(
             recording: recording,
             stopRequested: stopRequested,
@@ -339,23 +417,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         updateMenubarIcon(recording: false)
         if let recording = recorder.stopRecording() {
             lastWavURL = recording.url
+            lastAudioDurationMilliseconds = recording.durationMilliseconds
+            updateRecoveryItems()
+            Task { [weak self] in
+                await self?.recordFailedTranscription(
+                    wavURL: recording.url,
+                    durationMilliseconds: recording.durationMilliseconds,
+                    message: "Recording reached the one-hour safety limit before transcription."
+                )
+            }
         }
         print("Recording hit the 1-hour cap — stopped and saved (not auto-transcribed).")
     }
-
-    // A transcription failure is surfaced by flashing an amber warning icon. The
-    // WAV stays on disk, so "Re-transcribe last" remains a recovery path.
-    private func showFailure() {
+    private func showFailure(_ status: String = "Last transcription failed") {
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let button = self.statusItem.button else { return }
+            self.setMenuStatus(status)
             let cfg = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
                 .applying(NSImage.SymbolConfiguration(paletteColors: [.systemOrange]))
-            if let img = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "transcription failed")?.withSymbolConfiguration(cfg) {
+            if let img = NSImage(
+                systemSymbolName: "exclamationmark.triangle.fill",
+                accessibilityDescription: "transcription failed"
+            )?.withSymbolConfiguration(cfg) {
                 img.isTemplate = false
                 button.image = img
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-                self?.updateMenubarIcon(recording: false)
             }
         }
     }
@@ -365,7 +450,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
               let url = lastWavURL,
               FileManager.default.fileExists(atPath: url.path)
         else { return }
-        transcribeAndPaste(wavURL: url)
+        setMenuStatus("Transcribing…")
+        transcribeAndPaste(
+            wavURL: url,
+            retrying: lastFailedHistoryID,
+            audioDurationMilliseconds: lastAudioDurationMilliseconds
+        )
     }
 
     @objc private func revealLastRecording() {
@@ -394,12 +484,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 )
             } catch {
                 print("Fluid Unified transcription failed: \(error)")
-                self?.showFailure()
+                await self?.recordFailedTranscription(
+                    wavURL: recording.url,
+                    durationMilliseconds: recording.durationMilliseconds,
+                    message: error.localizedDescription
+                )
             }
         }
     }
 
-    private func transcribeAndPaste(wavURL: URL) {
+    private func transcribeAndPaste(
+        wavURL: URL,
+        retrying failureID: Int64? = nil,
+        audioDurationMilliseconds: Int? = nil
+    ) {
+        setMenuStatus("Transcribing…")
         let started = ProcessInfo.processInfo.systemUptime
         let transcriber = transcriber
         Task { [weak self] in
@@ -409,14 +508,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 await self?.finishTranscription(
                     raw: raw,
                     wavURL: wavURL,
-                    audioDurationMS: 0,
+                    audioDurationMS: audioDurationMilliseconds ?? 0,
                     stopRequested: started,
                     audioFinalizeMS: 0,
-                    inferenceMS: self?.milliseconds(from: started, to: inferenceFinished) ?? 0
+                    inferenceMS: self?.milliseconds(from: started, to: inferenceFinished) ?? 0,
+                    replacingFailureID: failureID
                 )
             } catch {
                 print("Fluid Unified transcription failed: \(error)")
-                self?.showFailure()
+                if failureID == nil {
+                    await self?.recordFailedTranscription(
+                        wavURL: wavURL,
+                        durationMilliseconds: audioDurationMilliseconds,
+                        message: error.localizedDescription
+                    )
+                } else {
+                    self?.showFailure()
+                }
             }
         }
     }
@@ -427,17 +535,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         audioDurationMS: Int,
         stopRequested: TimeInterval,
         audioFinalizeMS: Int,
-        inferenceMS: Int
+        inferenceMS: Int,
+        replacingFailureID: Int64? = nil
     ) async {
         let cleanupStarted = ProcessInfo.processInfo.systemUptime
         let text = Postprocessor.process(raw)
         do {
-            let rowID = try await HistoryStore.shared.save(
-                audioPath: wavURL.path,
-                text: text,
-                durationMilliseconds: audioDurationMS == 0 ? nil : audioDurationMS,
-                source: "fluid-unified"
-            )
+            let rowID: Int64
+            if let replacingFailureID {
+                try await HistoryStore.shared.resolveFailure(
+                    id: replacingFailureID,
+                    text: text,
+                    durationMilliseconds: audioDurationMS == 0 ? nil : audioDurationMS,
+                    source: "fluid-unified"
+                )
+                rowID = replacingFailureID
+            } else {
+                rowID = try await HistoryStore.shared.save(
+                    audioPath: wavURL.path,
+                    text: text,
+                    durationMilliseconds: audioDurationMS == 0 ? nil : audioDurationMS,
+                    source: "fluid-unified"
+                )
+            }
             let cleanupFinished = ProcessInfo.processInfo.systemUptime
             let cleanupAndHistoryMS = milliseconds(from: cleanupStarted, to: cleanupFinished)
 
@@ -451,6 +571,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     pasteIssueMS: 0,
                     stopRequested: stopRequested
                 )
+                DispatchQueue.main.async { [weak self] in
+                    self?.historyWindow?.loadHistory()
+                    self?.refreshReadyStatus()
+                }
                 return
             }
 
@@ -463,6 +587,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                         return
                     }
                     self.lastTranscription = text
+                    self.pasteLastItem?.isEnabled = true
+                    if self.lastFailedHistoryID == replacingFailureID {
+                        self.lastFailedHistoryID = nil
+                    }
                     self.pasteText(text) {
                         continuation.resume()
                     }
@@ -477,8 +605,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 pasteIssueMS: milliseconds(from: pasteStarted, to: pasteIssued),
                 stopRequested: stopRequested
             )
+            DispatchQueue.main.async { [weak self] in
+                self?.historyWindow?.loadHistory()
+                self?.refreshReadyStatus()
+            }
         } catch {
             print("Could not save transcription history: \(error.localizedDescription)")
+            showFailure("Could not save transcription")
+        }
+    }
+
+    private func recordFailedTranscription(
+        wavURL: URL,
+        durationMilliseconds: Int?,
+        message: String
+    ) async {
+        do {
+            let rowID = try await HistoryStore.shared.saveFailure(
+                audioPath: wavURL.path,
+                durationMilliseconds: durationMilliseconds,
+                source: "fluid-unified",
+                errorMessage: message
+            )
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.lastFailedHistoryID = rowID
+                self.historyWindow?.loadHistory()
+                self.updateRecoveryItems()
+                self.showFailure()
+            }
+        } catch {
+            print("Could not save failed transcription: \(error.localizedDescription)")
             showFailure()
         }
     }
@@ -593,15 +750,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     @objc private func showHistory() {
         if historyWindow == nil {
-            historyWindow = HistoryWindowController()
+            historyWindow = HistoryWindowController(onRetry: { [weak self] entry in
+                guard let self else { return }
+                let url = URL(fileURLWithPath: entry.audioPath)
+                self.lastWavURL = url
+                self.lastAudioDurationMilliseconds = entry.durationMilliseconds
+                self.lastFailedHistoryID = entry.id
+                self.updateRecoveryItems()
+                self.transcribeAndPaste(
+                    wavURL: url,
+                    retrying: entry.id,
+                    audioDurationMilliseconds: entry.durationMilliseconds
+                )
+            })
         }
         historyWindow?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc private func showRules() {
-        if rulesPanel == nil { rulesPanel = RulesPanelController() }
-        rulesPanel?.showPanel()
+    @objc private func showSettings() {
+        if settingsWindow == nil {
+            settingsWindow = SettingsWindowController()
+        }
+        settingsWindow?.show()
+    }
+
+    @objc private func showAbout() {
+        if aboutWindow == nil {
+            aboutWindow = AboutWindowController()
+        }
+        aboutWindow?.show()
     }
     @MainActor
     @objc private func showSpeechModel() {
@@ -637,7 +815,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             updateOpenAtLoginItem()
         } catch {
             print("Could not update Open at Login: \(error.localizedDescription)")
-            showFailure()
+            showFailure("Could not change Open at Login")
         }
     }
 
@@ -656,12 +834,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
 
-    @objc private func showDictionary() {
-        if dictionaryPanel == nil {
-            dictionaryPanel = DictionaryPanelController()
-        }
-        dictionaryPanel?.showPanel()
-    }
 
     @objc private func restart() {
         let task = Process()
