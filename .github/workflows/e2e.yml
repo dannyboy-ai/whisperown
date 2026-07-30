@@ -1,15 +1,15 @@
-# Integration checks that need the live macOS surface (a real toolchain, full
-# isolation) rather than a hosted runner. Runs inside a fresh, throwaway VM: the
-# checked-out repo is mounted read-only, the VM runs whisperown's real checks, and
-# it is destroyed after every job — untrusted code never touches the host.
+# Clean-room compilation on a real, isolated Mac. The checked-out repo is mounted
+# read-only, build artifacts go to the throwaway VM, and the VM is destroyed after
+# every job. Hosted CI owns the XCTest suite; this job proves the pinned dependency
+# graph and release build work from a cold macOS environment.
 #
-# MINIMAL DRAFT: proves the native source tree builds and its deterministic
-# cleanup/history checks pass inside an isolated Mac. A full microphone → model →
-# paste check still needs a purpose-built image with a permitted audio fixture.
+# A true microphone → model → paste check still requires a purpose-built image
+# with audio input and TCC permissions. Do not call this an end-to-end test until
+# it exercises that path.
 #
-# SAFETY: push-to-main only, never `pull_request` — this must never run untrusted
-# fork code.
-name: e2e — live macOS surface (isolated VM)
+# SAFETY: push-to-main only, never pull_request. Untrusted fork code must not run
+# on the self-hosted runner.
+name: Clean-room macOS build
 
 on:
   push:
@@ -56,15 +56,19 @@ jobs:
               swift build -c release --build-path /tmp/wo-build
               echo "    OK: native app builds in a clean VM"
 
-              echo "--- [2/3] native cleanup + history contracts ---"
-              swift test --build-path /tmp/wo-build >/dev/null
-              echo "    OK: Swift tests pass"
+              echo "--- [2/3] installer and bundle metadata ---"
+              bash -n install.sh
+              bash -n build.sh
+              plutil -lint Info.plist
+              test -x install.sh
+              test -x build.sh
+              echo "    OK: source installer inputs are valid"
 
-              echo "--- [3/3] structural wiring present ---"
-              for f in Package.swift Sources/FluidTranscriber.swift \
+              echo "--- [3/3] native wiring present ---"
+              for f in Package.swift Package.resolved Sources/FluidTranscriber.swift \
                        Sources/Postprocessor.swift Sources/HistoryStore.swift \
                        Sources/ModelDownloadWindow.swift build.sh install.sh; do
                 if [ -f "$f" ]; then echo "    OK: $f"; else echo "    MISSING: $f"; exit 1; fi
               done
-              echo "ALL VM CHECKS PASSED"
+              echo "ALL CLEAN-ROOM CHECKS PASSED"
             '

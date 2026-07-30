@@ -3,8 +3,8 @@
 # Advisory for now (doesn't block merges). Flip on branch protection to make it
 # required once there are outside contributors.
 #
-# Runs on GitHub's hosted Mac. The integration checks that need the live macOS
-# surface (permissions, GPU, paste) run separately (see e2e.yml).
+# A separate self-hosted workflow proves the pinned release build compiles inside
+# a fresh, throwaway macOS VM. Hardware/TCC end-to-end checks remain manual.
 name: CI
 
 on:

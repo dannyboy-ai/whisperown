@@ -15,6 +15,9 @@ transcript is pasted at your cursor. No cloud, accounts, subscriptions, or
 telemetry. Audio, transcription, cleanup, history, and paste all run in one
 native macOS process.
 
+**Status:** developer preview. Installation is from source; a notarized binary
+release waits on Developer ID signing. Expect first-run macOS permission setup.
+
 <p align="center"><img src="docs/assets/how-it-works.png" alt="1 press globe, 2 talk, 3 press globe again, 4 it's typed at your cursor" width="100%"></p>
 
 ## What it is
@@ -33,7 +36,7 @@ native macOS process.
 
 - Apple silicon Mac (M1 or newer)
 - macOS 14 Sonoma or later
-- Xcode Command Line Tools: `xcode-select --install`
+- Xcode 16 Command Line Tools (Swift 6): `xcode-select --install`
 - About 594 MB for the speech model
 
 No Python, Homebrew, background service, localhost port, or globally installed

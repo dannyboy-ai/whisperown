@@ -15,6 +15,17 @@ if ! xcode-select -p >/dev/null 2>&1; then
     echo "       then re-run ./install.sh"
     exit 1
 fi
+if ! command -v swift >/dev/null 2>&1; then
+    echo "ERROR: Swift is required. Install Xcode 16 Command Line Tools."
+    exit 1
+fi
+SWIFT_VERSION="$(swift --version | sed -n '1s/.*Swift version \([0-9][0-9.]*\).*/\1/p')"
+SWIFT_MAJOR="${SWIFT_VERSION%%.*}"
+if [ -z "$SWIFT_MAJOR" ] || [ "$SWIFT_MAJOR" -lt 6 ]; then
+    echo "ERROR: WhisperOwn needs Swift 6 (Xcode 16 Command Line Tools)."
+    echo "       Found: ${SWIFT_VERSION:-unknown}"
+    exit 1
+fi
 
 # Remove the pre-native backend if this checkout was installed before the
 # FluidAudio cutover. New installs never create a background service.

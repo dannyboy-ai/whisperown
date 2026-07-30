@@ -4,16 +4,11 @@ compile_commands.json
 
 # swift build artifacts
 .build/
-experiments/fluid-proto/.build/
-
-# python backend
-server/.venv/
-server/__pycache__/
 
 # private breadcrumbs — never public (see ../CLAUDE.md)
 CLAUDE.local.md
 
-# internal / half-baked docs kept on disk but out of the public repo
+# local-only prototypes and internal notes
 docs/MENUBAR-DEBUG.md
 docs/STREAMING-SPEC.md
 docs/BENCHMARKS.md
