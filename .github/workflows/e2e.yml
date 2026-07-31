@@ -41,12 +41,27 @@ jobs:
           if [ -z "$IP" ]; then echo "VM never got an IP"; exit 1; fi
           echo "VM booted at $IP"
 
-          # Run the real checks INSIDE the VM, against the mounted repo. Password-only auth
-          # (PubkeyAuthentication=no) avoids "too many auth failures" when keys are present.
-          sshpass -p admin ssh \
-            -o PreferredAuthentications=password -o PubkeyAuthentication=no \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            admin@"$IP" '
+          # An IP appears before first-boot account services are always ready.
+          # Wait for a successful authenticated command instead of making the
+          # release check flaky at that boundary.
+          SSH_OPTS=(
+            -o PreferredAuthentications=password
+            -o PubkeyAuthentication=no
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+          )
+          for attempt in $(seq 1 30); do
+            if sshpass -p admin ssh "${SSH_OPTS[@]}" admin@"$IP" true >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "VM SSH login never became ready"
+              exit 1
+            fi
+            sleep 2
+          done
+
+          sshpass -p admin ssh "${SSH_OPTS[@]}" admin@"$IP" '
               set -e
               cd "/Volumes/My Shared Files/repo"
               echo "in-VM: $(hostname) / macOS $(sw_vers -productVersion)"
