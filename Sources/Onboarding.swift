@@ -7,11 +7,10 @@ import AVFoundation
 // green check live (a poll), so granting is visible "click → ✓".
 
 final class OnboardingWindowController: NSObject, NSWindowDelegate {
-    private let onDone: () -> Void
+    private let onDone: (Bool) -> Void
     private var window: NSWindow!
     private var pollTimer: Timer?
     private var finished = false
-    private var showingTutorial = false
 
     private var micIcon: NSImageView!
     private var axIcon: NSImageView!
@@ -21,9 +20,9 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private var globeButton: NSButton!
     private var finishButton: NSButton!
 
-    private let rowWidth: CGFloat = 412
+    private let rowWidth: CGFloat = 440
 
-    init(onDone: @escaping () -> Void) {
+    init(onDone: @escaping (Bool) -> Void) {
         self.onDone = onDone
         super.init()
         buildWindow()
@@ -40,39 +39,80 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     // MARK: build
 
     private func buildWindow() {
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 464, height: 440),
-                         styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 492, height: 470),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
         w.title = "WhisperOwn"
         w.isReleasedWhenClosed = false
         w.delegate = self
+        w.appearance = NSAppearance(named: .darkAqua)
+        w.titlebarAppearsTransparent = true
+        w.backgroundColor = WhisperOwnBrand.ink
 
         let root = NSStackView()
         root.orientation = .vertical
         root.alignment = .leading
-        root.spacing = 14
-        root.edgeInsets = NSEdgeInsets(top: 22, left: 26, bottom: 22, right: 26)
+        root.spacing = 10
+        root.edgeInsets = NSEdgeInsets(top: 24, left: 26, bottom: 22, right: 26)
+        root.wantsLayer = true
+        root.layer?.backgroundColor = WhisperOwnBrand.ink.cgColor
 
-        root.addArrangedSubview(label("WhisperOwn", .systemFont(ofSize: 22, weight: .bold), .labelColor))
-        root.addArrangedSubview(label("A quick permissions guide. Grant each one below —\nWhisperOwn walks you through it, one step at a time.",
-                                      .systemFont(ofSize: 13), .secondaryLabelColor))
-        root.addArrangedSubview(separator())
+        let eyebrow = label(
+            "PRIVATE, ON-DEVICE DICTATION",
+            .systemFont(ofSize: 10.5, weight: .bold),
+            WhisperOwnBrand.teal
+        )
+        eyebrow.attributedStringValue = NSAttributedString(
+            string: eyebrow.stringValue,
+            attributes: [
+                .font: eyebrow.font as Any,
+                .foregroundColor: WhisperOwnBrand.teal,
+                .kern: 1.1,
+            ]
+        )
+        root.addArrangedSubview(eyebrow)
+        root.addArrangedSubview(label(
+            "Three permissions. Then you’re done.",
+            WhisperOwnBrand.displayFont(size: 25),
+            WhisperOwnBrand.paper
+        ))
+        let intro = label(
+            "WhisperOwn asks only for what makes Globe-to-paste work.",
+            .systemFont(ofSize: 12.5),
+            WhisperOwnBrand.secondaryText
+        )
+        root.addArrangedSubview(intro)
+        root.setCustomSpacing(18, after: intro)
 
-        micIcon = statusIcon()
+        micIcon = statusIcon("mic.fill")
         micButton = actionButton("Allow Microphone", #selector(micTapped))
-        root.addArrangedSubview(stepRow(micIcon, "Microphone",
-            "So WhisperOwn can hear you.", micButton))
+        root.addArrangedSubview(stepRow(
+            micIcon,
+            "Microphone",
+            "Records your voice for local transcription.",
+            micButton
+        ))
 
-        axIcon = statusIcon()
+        axIcon = statusIcon("hand.raised.fill")
         axButton = actionButton("Open Accessibility…", #selector(axTapped))
-        root.addArrangedSubview(stepRow(axIcon, "Accessibility",
-            "Lets WhisperOwn see the Globe key and paste for you.\nToggle WhisperOwn on in the list that opens.", axButton))
+        root.addArrangedSubview(stepRow(
+            axIcon,
+            "Accessibility",
+            "Listens for Globe and pastes at your cursor.",
+            axButton
+        ))
 
-        globeIcon = statusIcon()
+        globeIcon = statusIcon("globe")
         globeButton = actionButton("Open Keyboard…", #selector(globeTapped))
-        root.addArrangedSubview(stepRow(globeIcon, "Free up the Globe key",
-            "In Keyboard settings, set “Press 🌐 key to” → “Do\nNothing”. Detected automatically.", globeButton))
-
-        root.addArrangedSubview(separator())
+        root.addArrangedSubview(stepRow(
+            globeIcon,
+            "Free the Globe key",
+            "Set “Press 🌐 key to” to “Do Nothing.”",
+            globeButton
+        ))
 
         finishButton = NSButton(title: "Continue", target: self, action: #selector(finishTapped))
         finishButton.bezelStyle = .rounded
@@ -84,6 +124,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         footer.orientation = .horizontal
         footer.spacing = 10
         footer.widthAnchor.constraint(equalToConstant: rowWidth).isActive = true
+        root.setCustomSpacing(16, after: root.arrangedSubviews.last!)
         root.addArrangedSubview(footer)
 
         w.contentView = root
@@ -100,19 +141,22 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         return l
     }
 
-    private func separator() -> NSBox {
-        let b = NSBox(); b.boxType = .separator
-        b.translatesAutoresizingMaskIntoConstraints = false
-        b.widthAnchor.constraint(equalToConstant: rowWidth).isActive = true
-        return b
-    }
 
-    private func statusIcon() -> NSImageView {
-        let iv = NSImageView()
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.widthAnchor.constraint(equalToConstant: 22).isActive = true
-        iv.heightAnchor.constraint(equalToConstant: 22).isActive = true
-        return iv
+    private func statusIcon(_ symbol: String) -> NSImageView {
+        let icon = NSImageView()
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.wantsLayer = true
+        icon.layer?.backgroundColor = WhisperOwnBrand.teal.withAlphaComponent(0.12).cgColor
+        icon.layer?.cornerRadius = 18
+        icon.widthAnchor.constraint(equalToConstant: 36).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [WhisperOwnBrand.teal]))
+        icon.image = NSImage(
+            systemSymbolName: symbol,
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(config)
+        return icon
     }
 
     private func actionButton(_ t: String, _ action: Selector) -> NSButton {
@@ -120,131 +164,42 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         b.bezelStyle = .rounded
         b.setContentHuggingPriority(.required, for: .horizontal)
         b.setContentCompressionResistancePriority(.required, for: .horizontal)
+        b.widthAnchor.constraint(equalToConstant: 138).isActive = true
         return b
     }
 
     private func stepRow(_ icon: NSImageView, _ title: String, _ desc: String, _ button: NSButton) -> NSView {
-        let name = label(title, .systemFont(ofSize: 14, weight: .semibold), .labelColor)
-        let d = label(desc, .systemFont(ofSize: 12), .secondaryLabelColor)
-        let text = NSStackView(views: [name, d])
-        text.orientation = .vertical; text.alignment = .leading; text.spacing = 2
+        let name = label(title, .systemFont(ofSize: 14, weight: .semibold), WhisperOwnBrand.paper)
+        let detail = label(desc, .systemFont(ofSize: 11.5), WhisperOwnBrand.secondaryText)
+        let text = NSStackView(views: [name, detail])
+        text.orientation = .vertical
+        text.alignment = .leading
+        text.spacing = 2
+
         let spacer = NSView()
         spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
-        let row = NSStackView(views: [icon, text, spacer, button])
-        row.orientation = .horizontal; row.alignment = .centerY; row.spacing = 12
-        row.widthAnchor.constraint(equalToConstant: rowWidth).isActive = true
-        return row
-    }
+        let contents = NSStackView(views: [icon, text, spacer, button])
+        contents.orientation = .horizontal
+        contents.alignment = .centerY
+        contents.spacing = 12
+        contents.translatesAutoresizingMaskIntoConstraints = false
 
-    private func showTutorial() {
-        showingTutorial = true
-        pollTimer?.invalidate()
-        window.title = "WhisperOwn — Quick Start"
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = WhisperOwnBrand.ink
-
-        let root = NSStackView()
-        root.orientation = .vertical
-        root.alignment = .leading
-        root.spacing = 13
-        root.edgeInsets = NSEdgeInsets(top: 24, left: 26, bottom: 22, right: 26)
-
-        let eyebrow = label("ONE KEY. TWO PRESSES.", .systemFont(ofSize: 10.5, weight: .bold), WhisperOwnBrand.teal)
-        eyebrow.attributedStringValue = NSAttributedString(
-            string: eyebrow.stringValue,
-            attributes: [
-                .font: eyebrow.font as Any,
-                .foregroundColor: WhisperOwnBrand.teal,
-                .kern: 1.2,
-            ]
-        )
-        root.addArrangedSubview(eyebrow)
-        root.addArrangedSubview(label("You’re ready to whisper.", WhisperOwnBrand.displayFont(size: 26), .labelColor))
-        root.addArrangedSubview(label("WhisperOwn follows one simple rhythm.", .systemFont(ofSize: 13), .secondaryLabelColor))
-
-        root.addArrangedSubview(tutorialRow(
-            symbol: "mic.fill",
-            title: "Press Globe to record",
-            detail: "The upper-right microphone turns red while WhisperOwn is listening.",
-            tint: .systemRed
-        ))
-        root.addArrangedSubview(tutorialRow(
-            symbol: "waveform",
-            title: "Speak naturally",
-            detail: "Keep working or switch apps while WhisperOwn records.",
-            tint: WhisperOwnBrand.teal
-        ))
-        root.addArrangedSubview(tutorialRow(
-            symbol: "cursorarrow.rays",
-            title: "Place your cursor",
-            detail: "Click where the transcript should land before you finish.",
-            tint: WhisperOwnBrand.teal
-        ))
-        root.addArrangedSubview(tutorialRow(
-            symbol: "globe",
-            title: "Press Globe again",
-            detail: "Recording stops and your transcript pastes at the cursor.",
-            tint: WhisperOwnBrand.amber
-        ))
-
-        let menuNote = label(
-            "History, Paste Last Transcript, your dictionary, and troubleshooting live under the WhisperOwn microphone in the menu bar.",
-            .systemFont(ofSize: 12),
-            .secondaryLabelColor
-        )
-        menuNote.widthAnchor.constraint(equalToConstant: 468).isActive = true
-        root.addArrangedSubview(menuNote)
-
-        let startButton = NSButton(title: "Start using WhisperOwn", target: self, action: #selector(finishTapped))
-        startButton.bezelStyle = .rounded
-        startButton.keyEquivalent = "\r"
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
-        let footer = NSStackView(views: [spacer, startButton])
-        footer.orientation = .horizontal
-        footer.widthAnchor.constraint(equalToConstant: 468).isActive = true
-        root.addArrangedSubview(footer)
-
-        window.contentView = root
-        root.layoutSubtreeIfNeeded()
-        window.setContentSize(root.fittingSize)
-        window.center()
-    }
-
-    private func tutorialRow(symbol: String, title: String, detail: String, tint: NSColor) -> NSView {
-        let iconContainer = NSView()
-        iconContainer.translatesAutoresizingMaskIntoConstraints = false
-        iconContainer.wantsLayer = true
-        iconContainer.layer?.backgroundColor = tint.withAlphaComponent(0.14).cgColor
-        iconContainer.layer?.cornerRadius = 19
-        iconContainer.widthAnchor.constraint(equalToConstant: 38).isActive = true
-        iconContainer.heightAnchor.constraint(equalToConstant: 38).isActive = true
-
-        let icon = NSImageView()
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
-        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-        icon.contentTintColor = tint
-        iconContainer.addSubview(icon)
+        let card = NSView()
+        card.wantsLayer = true
+        card.layer?.backgroundColor = WhisperOwnBrand.surface.cgColor
+        card.layer?.cornerRadius = 11
+        card.widthAnchor.constraint(equalToConstant: rowWidth).isActive = true
+        card.heightAnchor.constraint(greaterThanOrEqualToConstant: 70).isActive = true
+        card.addSubview(contents)
         NSLayoutConstraint.activate([
-            icon.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
-            icon.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
+            contents.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            contents.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
+            contents.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            contents.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
         ])
-
-        let heading = label(title, .systemFont(ofSize: 14, weight: .semibold), .labelColor)
-        let explanation = label(detail, .systemFont(ofSize: 12), .secondaryLabelColor)
-        let copy = NSStackView(views: [heading, explanation])
-        copy.orientation = .vertical
-        copy.alignment = .leading
-        copy.spacing = 2
-
-        let row = NSStackView(views: [iconContainer, copy])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 12
-        row.widthAnchor.constraint(equalToConstant: 468).isActive = true
-        return row
+        return card
     }
+
 
 
     // MARK: status
@@ -260,7 +215,9 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         let micOK = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         let axOK = AXIsProcessTrusted()
         let globeOK = globeKeyIsFree()
-        setIcon(micIcon, micOK); setIcon(axIcon, axOK); setIcon(globeIcon, globeOK)
+        setIcon(micIcon, micOK, pending: "mic.fill")
+        setIcon(axIcon, axOK, pending: "hand.raised.fill")
+        setIcon(globeIcon, globeOK, pending: "globe")
         micButton.isEnabled = !micOK; if micOK { micButton.title = "Granted" }
         axButton.isEnabled = !axOK; if axOK { axButton.title = "Granted" }
         globeButton.isEnabled = !globeOK; if globeOK { globeButton.title = "Set" }
@@ -285,13 +242,20 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         return s == "0"
     }
 
-    private func setIcon(_ iv: NSImageView, _ done: Bool) {
-        let name = done ? "checkmark.circle.fill" : "circle"
-        let cfg = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [done ? .systemGreen : .tertiaryLabelColor]))
-        let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(cfg)
-        img?.isTemplate = false
-        iv.image = img
+    private func setIcon(_ icon: NSImageView, _ done: Bool, pending symbol: String) {
+        let name = done ? "checkmark" : symbol
+        let color = done ? WhisperOwnBrand.teal : WhisperOwnBrand.paper
+        let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+        let image = NSImage(
+            systemSymbolName: name,
+            accessibilityDescription: done ? "Complete" : nil
+        )?.withSymbolConfiguration(config)
+        image?.isTemplate = false
+        icon.image = image
+        icon.layer?.backgroundColor = (
+            done ? WhisperOwnBrand.teal : WhisperOwnBrand.surfaceRaised
+        ).withAlphaComponent(done ? 0.22 : 1).cgColor
     }
 
     // MARK: actions
@@ -321,21 +285,19 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc private func finishTapped() {
-        if showingTutorial {
-            finish()
-        } else {
-            showTutorial()
-        }
+        finish(startPractice: true)
     }
 
-    func windowWillClose(_ notification: Notification) { finish() }
+    func windowWillClose(_ notification: Notification) {
+        finish(startPractice: false)
+    }
 
-    private func finish() {
+    private func finish(startPractice: Bool) {
         guard !finished else { return }
         finished = true
         pollTimer?.invalidate()
         window.orderOut(nil)
-        onDone()
+        onDone(startPractice)
     }
 }
 
