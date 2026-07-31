@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var aboutWindow: AboutWindowController?
     private var onboarding: OnboardingWindowController?
     private var modelWindow: ModelDownloadWindowController?
+    private var practiceWindow: PracticeWindowController?
+    private var practiceReveal: MenuRevealWindowController?
     private var performancePanel: PerformancePanelController?
     private var modelReady = false
     private var modelState: ModelPreparationState = .preparing
@@ -28,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var hotkeyArmed = false
     private var lastFailedHistoryID: Int64?
     private var lastAudioDurationMilliseconds: Int?
+    private static let practicePendingKey = "onboarding.practicePending"
 
     // Hard cap on a single recording. A forgotten or stuck recording otherwise
     // grows without bound (16kHz mono int16 is ~115 MB/hr). At the cap we stop and
@@ -189,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             presentPermissionsIfNeeded()
         }
         refreshReadyStatus()
+        presentPracticeIfNeeded()
         if didPresentPermissions,
            AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
            AXIsProcessTrusted() {
@@ -208,6 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             } else {
                 print("Permissions ready; local speech model is loading.")
             }
+            presentPracticeIfNeeded()
         } else {
             setMenuStatus("Setup required")
             print("First-run: missing \(micOK ? "" : "microphone ")\(axOK ? "" : "accessibility ")— opening Permissions Guide")
@@ -220,19 +225,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // An accessory (menubar-only) app can't normally show a focused window;
         // flip to a regular app for the duration of the guide, then flip back.
         NSApp.setActivationPolicy(.regular)
-        let controller = OnboardingWindowController(onDone: { [weak self] in
-            guard let self = self else { return }
-            NSApp.setActivationPolicy(.accessory)
+        let controller = OnboardingWindowController(onDone: { [weak self] startPractice in
+            guard let self else { return }
             self.onboarding = nil
-            // A CGEvent tap can't be armed in-process after launch, so if
-            // accessibility just landed and we aren't armed yet, relaunch — the
-            // fresh process sees both grants and skips the guide entirely.
+            NSApp.setActivationPolicy(.accessory)
+
+            guard startPractice else { return }
+            UserDefaults.standard.set(true, forKey: Self.practicePendingKey)
+
+            // A CGEvent tap can't be armed in-process after Accessibility is
+            // granted. Relaunch once, then resume directly in the live practice.
             if AXIsProcessTrusted() && !self.hotkeyArmed {
                 self.restart()
+                return
             }
+            self.presentPracticeIfNeeded()
         })
         onboarding = controller
         controller.show()
+    }
+
+    private func presentPracticeIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: Self.practicePendingKey),
+              modelReady,
+              hotkeyArmed,
+              AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
+              AXIsProcessTrusted()
+        else { return }
+
+        if let existing = practiceWindow {
+            existing.show()
+            return
+        }
+
+        NSApp.setActivationPolicy(.regular)
+        let controller = PracticeWindowController(
+            onRevealMenu: { [weak self] in self?.showPracticeMenuReveal() },
+            onCancel: { [weak self] in self?.finishPractice() }
+        )
+        practiceWindow = controller
+        controller.show()
+    }
+
+    private func showPracticeMenuReveal() {
+        let reveal = MenuRevealWindowController(
+            onDone: { [weak self] in self?.finishPractice() }
+        )
+        practiceReveal = reveal
+        reveal.show(below: nil)
+    }
+
+    private func finishPractice() {
+        UserDefaults.standard.removeObject(forKey: Self.practicePendingKey)
+        practiceReveal?.close()
+        practiceReveal = nil
+        practiceWindow = nil
+        NSApp.setActivationPolicy(.accessory)
     }
 
     private func setupLogging() {
@@ -378,6 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         setMenuStatus("Recording…")
         updateMenubarIcon(recording: true)
         recorder.startRecording()
+        practiceWindow?.recordingDidStart()
         let cap = DispatchWorkItem { [weak self] in self?.stopRecordingAtCap() }
         recordingCap = cap
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.maxRecordingSeconds, execute: cap)
@@ -395,8 +444,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // finalized at the same time and remains available for recovery/history.
         guard let recording = recorder.stopRecording() else {
             print("Recording failed — no audio produced")
+            practiceWindow?.transcriptionDidFail()
             return
         }
+        practiceWindow?.transcriptionDidStart()
         let audioFinalized = ProcessInfo.processInfo.systemUptime
         lastWavURL = recording.url
         lastAudioDurationMilliseconds = recording.durationMilliseconds
@@ -489,6 +540,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     durationMilliseconds: recording.durationMilliseconds,
                     message: error.localizedDescription
                 )
+                DispatchQueue.main.async { [weak self] in
+                    self?.practiceWindow?.transcriptionDidFail()
+                }
             }
         }
     }
@@ -524,6 +578,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     )
                 } else {
                     self?.showFailure()
+                }
+                DispatchQueue.main.async { [weak self] in
+                    self?.practiceWindow?.transcriptionDidFail()
                 }
             }
         }
@@ -579,6 +636,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     self.updateRecoveryItems()
                     self.historyWindow?.loadHistory()
                     self.refreshReadyStatus()
+                    self.practiceWindow?.transcriptionDidFail()
                 }
                 return
             }
@@ -597,8 +655,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                         self.lastFailedHistoryID = nil
                     }
                     self.updateRecoveryItems()
-                    self.pasteText(text) {
+                    if let practice = self.practiceWindow {
+                        practice.transcriptionDidFinish(text: text)
                         continuation.resume()
+                    } else {
+                        self.pasteText(text) {
+                            continuation.resume()
+                        }
                     }
                 }
             }
