@@ -22,8 +22,8 @@ release waits on Developer ID signing. Expect first-run macOS permission setup.
 
 ## What it is
 
-- **Fast local transcription.** Parakeet Unified runs through Core ML on Apple
-  silicon and stays loaded while WhisperOwn is open.
+- **Fast local English transcription.** Parakeet Unified runs through Core ML
+  on Apple silicon and stays loaded while WhisperOwn is open.
 - **Deterministic cleanup.** Regex rules remove fillers and restart artifacts;
   there is no LLM rewrite. The rules are visible from the menubar and documented
   in [POSTPROCESS.md](POSTPROCESS.md).
@@ -78,15 +78,16 @@ again.
 
 | Menu item | What it does |
 |---|---|
-| **Show History** | Browse transcript text and replay saved audio. |
-| **Re-transcribe last** | Retry the most recent WAV after a failure. |
-| **Reveal recording in Finder** | Open the latest recording on disk. |
+| **Paste Last Transcript** | Paste the most recent completed transcript again. |
+| **History…** | Browse transcript text and replay saved audio. |
 | **Dictionary…** | Add whole-word `heard → meant` replacements. |
-| **Cleanup Rules…** | Inspect the active deterministic cleanup rules. |
-| **Speech Model…** | View model readiness or retry a failed download. |
+| **Cleanup…** | Inspect the active deterministic cleanup rules. |
+| **Retry Failed Recording** | Retry the most recent failed WAV from **Advanced**. |
+| **Reveal Latest Recording in Finder** | Open the latest recording from **Advanced**. |
+| **Speech Model Info…** | View model readiness or retry a failed download. |
 | **Performance…** | View local stop-to-paste median, p95, and the latest phase breakdown. |
-| **Open at Login** | Register/unregister the app with macOS `SMAppService`. |
-| **Permissions Guide…** | Reopen the macOS setup walkthrough. |
+| **Open at Login** | Register or unregister the app with macOS. |
+| **Getting Started…** | Reopen the permission setup and practice flow. |
 
 An inference or history failure flashes the icon amber and leaves the WAV on
 disk. There is no cloud fallback.
@@ -142,14 +143,13 @@ WHISPEROWN_SMOKE_WAV=/path/to/recording.wav \
 
 - **Globe opens emoji or switches input source:** set “Press 🌐 key to” to “Do
   Nothing.”
-- **Globe does nothing:** reopen **Permissions Guide…** and check
-  Accessibility.
+- **Globe does nothing:** reopen **Getting Started…** and check Accessibility.
 - **Recording works but nothing pastes:** re-toggle Accessibility for the
   installed `/Applications/WhisperOwn.app`.
-- **The icon flashes amber:** use **Re-transcribe last**. Details are in
-  `~/Library/Application Support/WhisperOwn/whisperown.log`.
-- **The model download failed:** open **Speech Model…** and retry. Partial
-  downloads are resumable.
+- **The icon flashes amber:** use **Advanced → Retry Failed Recording**. Details
+  are in `~/Library/Application Support/WhisperOwn/whisperown.log`.
+- **The model download failed:** open **Advanced → Speech Model Info…** and
+  retry. Partial downloads are resumable.
 
 ## Privacy
 
@@ -157,6 +157,8 @@ No accounts and no telemetry. Audio, transcripts, history, dictionary entries,
 models, logs, and timing records stay under
 `~/Library/Application Support/WhisperOwn/`. Deleting that directory erases
 them.
+Recordings are retained until you delete them from the `recordings/` directory;
+WhisperOwn does not automatically prune them.
 
 ## Uninstall
 
@@ -175,8 +177,12 @@ and **Microphone** if you also want to clear macOS's permission entries.
 - [FluidAudio](https://github.com/FluidInference/FluidAudio) provides the
   Core ML speech runtime under Apache-2.0.
 - The downloaded
-  [Parakeet Unified model](https://huggingface.co/nvidia/parakeet-unified-en-0.6b)
-  is maintained and licensed upstream by NVIDIA.
+  [Parakeet Unified Core ML model](https://huggingface.co/FluidInference/parakeet-unified-en-0.6b-coreml)
+  is provided by FluidInference under CC BY 4.0.
+- The converted model is based on
+  [NVIDIA Parakeet Unified](https://huggingface.co/nvidia/parakeet-unified-en-0.6b),
+  governed by the
+  [NVIDIA Open Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/).
 
 ## Expectations
 
