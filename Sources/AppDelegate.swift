@@ -268,11 +268,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
     private func showPracticeMenuReveal() {
+        guard let button = statusItem.button else {
+            finishPractice()
+            return
+        }
+
         let reveal = MenuRevealWindowController(
             onDone: { [weak self] in self?.finishPractice() }
         )
         practiceReveal = reveal
-        reveal.show(below: nil)
+        reveal.show(below: button)
     }
 
     private func finishPractice() {

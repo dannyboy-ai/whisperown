@@ -275,16 +275,44 @@ final class PracticeWindowController: NSObject, NSWindowDelegate {
     }
 }
 
+
+private final class MenuRevealArrowView: NSView {
+    var arrowX: CGFloat = 170 {
+        didSet { needsDisplay = true }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let tipY = bounds.maxY
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: arrowX, y: tipY))
+        path.line(to: NSPoint(x: arrowX - 10, y: tipY - 11))
+        path.line(to: NSPoint(x: arrowX + 10, y: tipY - 11))
+        path.close()
+        WhisperOwnBrand.ink.setFill()
+        path.fill()
+        WhisperOwnBrand.teal.withAlphaComponent(0.72).setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+}
+
 final class MenuRevealWindowController: NSWindowController {
+    private let contentController: MenuRevealViewController
+    private let onDismiss: () -> Void
+    private var outsideClickMonitor: Any?
+    private var dismissWorkItem: DispatchWorkItem?
+    private var didDismiss = false
+
     init(onDone: @escaping () -> Void) {
-        let content = MenuRevealViewController(onDone: onDone)
+        let contentController = MenuRevealViewController(onDone: onDone)
         let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: content.preferredContentSize),
+            contentRect: NSRect(origin: .zero, size: contentController.preferredContentSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        panel.contentViewController = content
+        panel.contentViewController = contentController
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
@@ -293,31 +321,69 @@ final class MenuRevealWindowController: NSWindowController {
         panel.becomesKeyOnlyIfNeeded = true
         panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+
+        self.contentController = contentController
+        self.onDismiss = onDone
         super.init(window: panel)
     }
 
     required init?(coder: NSCoder) { nil }
 
-    func show(below anchor: NSView?) {
-        guard let window, let screen = anchor?.window?.screen ?? NSScreen.main else { return }
-        let visible = screen.visibleFrame
-        window.setContentSize(NSSize(width: 340, height: 294))
+    override func close() {
+        didDismiss = true
+        dismissWorkItem?.cancel()
+        dismissWorkItem = nil
+        if let outsideClickMonitor {
+            NSEvent.removeMonitor(outsideClickMonitor)
+            self.outsideClickMonitor = nil
+        }
+        super.close()
+    }
+
+    func show(below anchor: NSView) {
+        guard let window,
+              let hostWindow = anchor.window,
+              let screen = hostWindow.screen
+        else { return }
+
+        window.setContentSize(contentController.preferredContentSize)
         let size = window.frame.size
+        let visible = screen.visibleFrame
+        let anchorFrame = hostWindow.convertToScreen(anchor.convert(anchor.bounds, to: nil))
 
         var origin = NSPoint(
-            x: visible.maxX - size.width - 12,
-            y: visible.maxY - size.height - 12
+            x: anchorFrame.midX - size.width / 2,
+            y: anchorFrame.minY - size.height - 1
         )
-        if let anchor, let hostWindow = anchor.window {
-            let anchorFrame = hostWindow.convertToScreen(anchor.convert(anchor.bounds, to: nil))
-            origin.x = anchorFrame.midX - size.width / 2
-            origin.y = anchorFrame.minY - size.height - 8
-        }
-
         origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
-        origin.y = min(max(origin.y, visible.minY + 8), visible.maxY - size.height - 8)
+        origin.y = max(origin.y, visible.minY + 8)
+
+        contentController.setArrowX(
+            min(max(anchorFrame.midX - origin.x, 18), size.width - 18)
+        )
         window.setFrameOrigin(origin)
         window.orderFrontRegardless()
+
+        let dismissWorkItem = DispatchWorkItem { [weak self] in
+            self?.dismiss()
+        }
+        self.dismissWorkItem = dismissWorkItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: dismissWorkItem)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self, !self.didDismiss else { return }
+            self.outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown]
+            ) { [weak self] _ in
+                DispatchQueue.main.async { self?.dismiss() }
+            }
+        }
+    }
+
+    private func dismiss() {
+        guard !didDismiss else { return }
+        didDismiss = true
+        onDismiss()
     }
 }
 
@@ -327,17 +393,27 @@ final class MenuRevealViewController: NSViewController {
     init(onDone: @escaping () -> Void) {
         self.onDone = onDone
         super.init(nibName: nil, bundle: nil)
-        preferredContentSize = NSSize(width: 340, height: 294)
+        preferredContentSize = NSSize(width: 340, height: 304)
     }
 
     required init?(coder: NSCoder) { nil }
 
+    func setArrowX(_ x: CGFloat) {
+        (view as? MenuRevealArrowView)?.arrowX = x
+    }
+
     override func loadView() {
-        let root = NSView()
+        let root = MenuRevealArrowView()
         root.wantsLayer = true
-        root.layer?.backgroundColor = WhisperOwnBrand.ink.cgColor
-        root.layer?.cornerRadius = 12
+        root.layer?.backgroundColor = NSColor.clear.cgColor
         view = root
+
+        let body = NSView()
+        body.wantsLayer = true
+        body.layer?.backgroundColor = WhisperOwnBrand.ink.cgColor
+        body.layer?.cornerRadius = 12
+        body.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(body)
 
         let eyebrow = NSTextField(labelWithString: "WHISPEROWN LIVES HERE")
         eyebrow.font = NSFont.systemFont(ofSize: 10, weight: .bold)
@@ -363,20 +439,24 @@ final class MenuRevealViewController: NSViewController {
 
         for item in [eyebrow, title, rows, done] {
             item.translatesAutoresizingMaskIntoConstraints = false
-            root.addSubview(item)
+            body.addSubview(item)
         }
         NSLayoutConstraint.activate([
-            eyebrow.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
-            eyebrow.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            body.topAnchor.constraint(equalTo: root.topAnchor, constant: 10),
+            body.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            body.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            body.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            eyebrow.topAnchor.constraint(equalTo: body.topAnchor, constant: 20),
+            eyebrow.centerXAnchor.constraint(equalTo: body.centerXAnchor),
             title.topAnchor.constraint(equalTo: eyebrow.bottomAnchor, constant: 4),
-            title.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            title.centerXAnchor.constraint(equalTo: body.centerXAnchor),
             title.widthAnchor.constraint(equalToConstant: 300),
             rows.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 16),
-            rows.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            rows.centerXAnchor.constraint(equalTo: body.centerXAnchor),
             rows.widthAnchor.constraint(equalToConstant: 300),
             done.topAnchor.constraint(greaterThanOrEqualTo: rows.bottomAnchor, constant: 14),
-            done.centerXAnchor.constraint(equalTo: root.centerXAnchor),
-            done.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -16),
+            done.centerXAnchor.constraint(equalTo: body.centerXAnchor),
+            done.bottomAnchor.constraint(equalTo: body.bottomAnchor, constant: -16),
         ])
     }
 

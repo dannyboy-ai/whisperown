@@ -837,7 +837,12 @@ private final class CleanupSettingsViewController: NSViewController {
     private var textView: NSTextView!
     private var copyButton: NSButton!
 
-    private let prompt = "WhisperOwn's dictation cleanup runs deterministic regex in Sources/Postprocessor.swift. I want to change a cleanup rule: <describe the change>. Edit the rule, add Swift fixtures covering BOTH the fix AND a near-miss it must not touch, then run the focused cleanup tests."
+    private static let copyButtonTitle = "Copy customization prompt"
+    private let prompt = """
+    I use WhisperOwn and want to change its deterministic dictation cleanup.
+    Requested behavior: <describe the change>.
+    Implement the rule in Sources/Postprocessor.swift, add Swift fixtures covering both the intended fix and a near-miss it must not change, then run the focused cleanup tests.
+    """
 
     override func loadView() {
         let root = NSView()
@@ -873,17 +878,18 @@ private final class CleanupSettingsViewController: NSViewController {
         textView.backgroundColor = WhisperOwnBrand.surface
         scroll.documentView = textView
 
-        let footer = NSTextField(labelWithString: "Want to change a rule?")
+        let footer = NSTextField(labelWithString: "Want different cleanup behavior?")
         footer.font = NSFont.systemFont(ofSize: 11)
         footer.textColor = .secondaryLabelColor
 
         copyButton = NSButton(
-            title: "Copy prompt for your agent",
+            title: Self.copyButtonTitle,
             target: self,
             action: #selector(copyPrompt)
         )
         copyButton.bezelStyle = .rounded
         copyButton.controlSize = .small
+        copyButton.toolTip = "Copies a ready-to-edit request for a coding agent."
 
         for child in [title, explanation, scroll, footer, copyButton!] {
             child.translatesAutoresizingMaskIntoConstraints = false
@@ -921,7 +927,7 @@ private final class CleanupSettingsViewController: NSViewController {
         NSPasteboard.general.setString(prompt, forType: .string)
         copyButton.title = "Copied"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
-            self?.copyButton.title = "Copy prompt for your agent"
+            self?.copyButton.title = Self.copyButtonTitle
         }
     }
 
