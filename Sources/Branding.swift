@@ -5,6 +5,10 @@ enum WhisperOwnBrand {
     static let teal = NSColor(red: 0.38, green: 0.82, blue: 0.79, alpha: 1)
     static let amber = NSColor(red: 0.93, green: 0.62, blue: 0.28, alpha: 1)
     static let paper = NSColor(red: 0.93, green: 0.95, blue: 0.94, alpha: 1)
+    static let surface = NSColor(red: 0.065, green: 0.12, blue: 0.15, alpha: 1)
+    static let surfaceRaised = NSColor(red: 0.085, green: 0.15, blue: 0.18, alpha: 1)
+    static let failureSurface = NSColor(red: 0.14, green: 0.095, blue: 0.075, alpha: 1)
+    static let secondaryText = NSColor(red: 0.62, green: 0.68, blue: 0.69, alpha: 1)
 
     static func displayFont(size: CGFloat) -> NSFont {
         let base = NSFont.systemFont(ofSize: size, weight: .medium)

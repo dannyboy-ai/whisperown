@@ -12,10 +12,10 @@ final class HistoryWindowController: NSWindowController {
     private weak var playingButton: NSButton?
 
     private let background = WhisperOwnBrand.ink
-    private let cardColor = NSColor(red: 0.065, green: 0.12, blue: 0.15, alpha: 1)
-    private let failedCardColor = NSColor(red: 0.14, green: 0.095, blue: 0.075, alpha: 1)
+    private let cardColor = WhisperOwnBrand.surface
+    private let failedCardColor = WhisperOwnBrand.failureSurface
     private let textPrimary = WhisperOwnBrand.paper
-    private let textSecondary = NSColor(red: 0.62, green: 0.68, blue: 0.69, alpha: 1)
+    private let textSecondary = WhisperOwnBrand.secondaryText
 
     init(onRetry: @escaping (HistoryEntry) -> Void) {
         self.onRetry = onRetry
@@ -42,6 +42,7 @@ final class HistoryWindowController: NSWindowController {
 
     override func showWindow(_ sender: Any?) {
         super.showWindow(sender)
+        window?.center()
         loadHistory()
     }
 
@@ -84,12 +85,12 @@ final class HistoryWindowController: NSWindowController {
 
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: content.topAnchor, constant: 26),
-            title.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            title.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 28),
 
             countLabel.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
             countLabel.leadingAnchor.constraint(equalTo: title.leadingAnchor),
 
-            privacy.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
+            privacy.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
             privacy.centerYAnchor.constraint(equalTo: countLabel.centerYAnchor),
             privacy.leadingAnchor.constraint(greaterThanOrEqualTo: countLabel.trailingAnchor, constant: 16),
 
@@ -99,8 +100,8 @@ final class HistoryWindowController: NSWindowController {
             scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
 
             stackView.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
-            stackView.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor, constant: 24),
-            stackView.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor, constant: -24),
+            stackView.centerXAnchor.constraint(equalTo: scroll.contentView.centerXAnchor),
+            stackView.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor, constant: -56),
         ])
     }
 
@@ -483,30 +484,9 @@ final class HistoryWindowController: NSWindowController {
 
 final class SettingsWindowController: NSWindowController {
     convenience init() {
-        let tabs = NSTabViewController()
-        tabs.tabStyle = .toolbar
-        tabs.preferredContentSize = NSSize(width: 640, height: 560)
-
-        let dictionary = DictionarySettingsViewController()
-        let dictionaryItem = NSTabViewItem(viewController: dictionary)
-        dictionaryItem.label = "Dictionary"
-        dictionaryItem.image = NSImage(
-            systemSymbolName: "text.book.closed",
-            accessibilityDescription: "Dictionary"
-        )
-        tabs.addTabViewItem(dictionaryItem)
-
-        let cleanup = CleanupSettingsViewController()
-        let cleanupItem = NSTabViewItem(viewController: cleanup)
-        cleanupItem.label = "Cleanup"
-        cleanupItem.image = NSImage(
-            systemSymbolName: "wand.and.stars",
-            accessibilityDescription: "Cleanup"
-        )
-        tabs.addTabViewItem(cleanupItem)
-
+        let contentController = SettingsContentViewController()
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 590),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -516,7 +496,10 @@ final class SettingsWindowController: NSWindowController {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = WhisperOwnBrand.ink
-        window.contentViewController = tabs
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.contentViewController = contentController
+        window.setContentSize(NSSize(width: 640, height: 590))
 
         self.init(window: window)
     }
@@ -525,6 +508,78 @@ final class SettingsWindowController: NSWindowController {
         showWindow(nil)
         window?.center()
         NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+private final class SettingsContentViewController: NSViewController {
+    private let dictionary = DictionarySettingsViewController()
+    private let cleanup = CleanupSettingsViewController()
+    private var pages: [NSViewController] = []
+
+    override func loadView() {
+        let root = NSView()
+        root.wantsLayer = true
+        root.layer?.backgroundColor = WhisperOwnBrand.ink.cgColor
+        view = root
+
+        let picker = NSSegmentedControl(
+            labels: ["Dictionary", "Cleanup"],
+            trackingMode: .selectOne,
+            target: self,
+            action: #selector(pageChanged(_:))
+        )
+        picker.selectedSegment = 0
+        picker.segmentStyle = .rounded
+        picker.setImage(
+            NSImage(systemSymbolName: "text.book.closed", accessibilityDescription: "Dictionary"),
+            forSegment: 0
+        )
+        picker.setImage(
+            NSImage(systemSymbolName: "wand.and.stars", accessibilityDescription: "Cleanup"),
+            forSegment: 1
+        )
+        picker.setWidth(116, forSegment: 0)
+        picker.setWidth(116, forSegment: 1)
+
+        let pageContainer = NSView()
+        pageContainer.wantsLayer = true
+        pageContainer.layer?.backgroundColor = WhisperOwnBrand.ink.cgColor
+
+        picker.translatesAutoresizingMaskIntoConstraints = false
+        pageContainer.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(picker)
+        root.addSubview(pageContainer)
+
+        NSLayoutConstraint.activate([
+            picker.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
+            picker.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+
+            pageContainer.topAnchor.constraint(equalTo: picker.bottomAnchor, constant: 10),
+            pageContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            pageContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            pageContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+
+        pages = [dictionary, cleanup]
+        for (index, controller) in pages.enumerated() {
+            addChild(controller)
+            let page = controller.view
+            page.translatesAutoresizingMaskIntoConstraints = false
+            page.isHidden = index != 0
+            pageContainer.addSubview(page)
+            NSLayoutConstraint.activate([
+                page.topAnchor.constraint(equalTo: pageContainer.topAnchor),
+                page.leadingAnchor.constraint(equalTo: pageContainer.leadingAnchor),
+                page.trailingAnchor.constraint(equalTo: pageContainer.trailingAnchor),
+                page.bottomAnchor.constraint(equalTo: pageContainer.bottomAnchor),
+            ])
+        }
+    }
+
+    @objc private func pageChanged(_ sender: NSSegmentedControl) {
+        for (index, page) in pages.enumerated() {
+            page.view.isHidden = index != sender.selectedSegment
+        }
     }
 }
 
@@ -561,7 +616,8 @@ private final class DictionarySettingsViewController: NSViewController, NSTableV
         explanation.textColor = .secondaryLabelColor
 
         tableView = NSTableView()
-        tableView.usesAlternatingRowBackgroundColors = true
+        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.backgroundColor = WhisperOwnBrand.surface
         tableView.rowHeight = 30
         tableView.headerView = NSTableHeaderView()
         tableView.delegate = self
@@ -583,7 +639,15 @@ private final class DictionarySettingsViewController: NSViewController, NSTableV
         let scroll = NSScrollView()
         scroll.documentView = tableView
         scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = true
+        scroll.backgroundColor = WhisperOwnBrand.surface
+        scroll.wantsLayer = true
+        scroll.layer?.backgroundColor = WhisperOwnBrand.surface.cgColor
+        scroll.layer?.cornerRadius = 10
+        scroll.layer?.borderWidth = 1
+        scroll.layer?.borderColor = WhisperOwnBrand.surfaceRaised.cgColor
+        scroll.layer?.masksToBounds = true
 
         heardField = NSTextField()
         heardField.placeholderString = "What WhisperOwn hears"
@@ -619,9 +683,9 @@ private final class DictionarySettingsViewController: NSViewController, NSTableV
         }
 
         NSLayoutConstraint.activate([
-            title.topAnchor.constraint(equalTo: root.topAnchor, constant: 28),
-            title.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 30),
-            title.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -30),
+            title.topAnchor.constraint(equalTo: root.topAnchor, constant: 18),
+            title.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 28),
+            title.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -28),
 
             explanation.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 7),
             explanation.leadingAnchor.constraint(equalTo: title.leadingAnchor),
@@ -780,13 +844,20 @@ private final class CleanupSettingsViewController: NSViewController {
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = true
+        scroll.backgroundColor = WhisperOwnBrand.surface
+        scroll.wantsLayer = true
+        scroll.layer?.backgroundColor = WhisperOwnBrand.surface.cgColor
+        scroll.layer?.cornerRadius = 10
+        scroll.layer?.borderWidth = 1
+        scroll.layer?.borderColor = WhisperOwnBrand.surfaceRaised.cgColor
+        scroll.layer?.masksToBounds = true
         textView = NSTextView()
         textView.isEditable = false
         textView.isSelectable = true
-        textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 10, height: 12)
+        textView.drawsBackground = true
+        textView.backgroundColor = WhisperOwnBrand.surface
         scroll.documentView = textView
 
         let footer = NSTextField(labelWithString: "Want to change a rule?")
@@ -806,9 +877,9 @@ private final class CleanupSettingsViewController: NSViewController {
             root.addSubview(child)
         }
         NSLayoutConstraint.activate([
-            title.topAnchor.constraint(equalTo: root.topAnchor, constant: 28),
-            title.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 30),
-            title.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -30),
+            title.topAnchor.constraint(equalTo: root.topAnchor, constant: 18),
+            title.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 28),
+            title.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -28),
 
             explanation.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 7),
             explanation.leadingAnchor.constraint(equalTo: title.leadingAnchor),
@@ -865,7 +936,7 @@ private final class CleanupSettingsViewController: NSViewController {
                     string: (lastSection.isEmpty ? "" : "\n") + section.uppercased() + "\n",
                     attributes: [
                         .font: headFont,
-                        .foregroundColor: WhisperOwnBrand.amber,
+                        .foregroundColor: WhisperOwnBrand.teal,
                         .kern: 0.8,
                     ]
                 ))

@@ -84,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let advancedMenu = NSMenu(title: "Advanced")
         advancedMenu.autoenablesItems = false
         let retryItem = NSMenuItem(
-            title: "Re-transcribe Last Recording",
+            title: "Retry Failed Recording",
             action: #selector(reTranscribeLast),
             keyEquivalent: ""
         )
@@ -92,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         retryLastItem = retryItem
         advancedMenu.addItem(retryItem)
         let revealItem = NSMenuItem(
-            title: "Reveal Last Recording in Finder",
+            title: "Reveal Latest Recording in Finder",
             action: #selector(revealLastRecording),
             keyEquivalent: ""
         )
@@ -100,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         revealLastItem = revealItem
         advancedMenu.addItem(revealItem)
         advancedMenu.addItem(NSMenuItem.separator())
-        advancedMenu.addItem(NSMenuItem(title: "Speech Model…", action: #selector(showSpeechModel), keyEquivalent: ""))
+        advancedMenu.addItem(NSMenuItem(title: "Speech Model Info…", action: #selector(showSpeechModel), keyEquivalent: ""))
         advancedMenu.addItem(NSMenuItem(title: "Performance…", action: #selector(showPerformance), keyEquivalent: ""))
         advancedItem.submenu = advancedMenu
         menu.addItem(advancedItem)
@@ -285,7 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let recordingExists = lastWavURL.map {
             FileManager.default.fileExists(atPath: $0.path)
         } ?? false
-        retryLastItem?.isEnabled = modelReady && recordingExists
+        retryLastItem?.isEnabled = modelReady && recordingExists && lastFailedHistoryID != nil
         revealLastItem?.isEnabled = recordingExists
     }
 
@@ -572,8 +572,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     stopRequested: stopRequested
                 )
                 DispatchQueue.main.async { [weak self] in
-                    self?.historyWindow?.loadHistory()
-                    self?.refreshReadyStatus()
+                    guard let self else { return }
+                    if self.lastFailedHistoryID == replacingFailureID {
+                        self.lastFailedHistoryID = nil
+                    }
+                    self.updateRecoveryItems()
+                    self.historyWindow?.loadHistory()
+                    self.refreshReadyStatus()
                 }
                 return
             }
@@ -591,6 +596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     if self.lastFailedHistoryID == replacingFailureID {
                         self.lastFailedHistoryID = nil
                     }
+                    self.updateRecoveryItems()
                     self.pasteText(text) {
                         continuation.resume()
                     }

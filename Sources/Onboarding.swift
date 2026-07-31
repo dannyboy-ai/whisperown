@@ -163,27 +163,32 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         root.addArrangedSubview(label("WhisperOwn follows one simple rhythm.", .systemFont(ofSize: 13), .secondaryLabelColor))
 
         root.addArrangedSubview(tutorialRow(
-            symbol: "cursorarrow.rays",
-            title: "Place your cursor",
-            detail: "Click wherever your words should land.",
-            tint: WhisperOwnBrand.teal
-        ))
-        root.addArrangedSubview(tutorialRow(
             symbol: "mic.fill",
             title: "Press Globe to record",
-            detail: "Look at the upper-right menu bar. The microphone turns red while you’re recording.",
+            detail: "The upper-right microphone turns red while WhisperOwn is listening.",
             tint: .systemRed
         ))
         root.addArrangedSubview(tutorialRow(
-            symbol: "text.cursor",
+            symbol: "waveform",
+            title: "Speak naturally",
+            detail: "Keep working or switch apps while WhisperOwn records.",
+            tint: WhisperOwnBrand.teal
+        ))
+        root.addArrangedSubview(tutorialRow(
+            symbol: "cursorarrow.rays",
+            title: "Place your cursor",
+            detail: "Click where the transcript should land before you finish.",
+            tint: WhisperOwnBrand.teal
+        ))
+        root.addArrangedSubview(tutorialRow(
+            symbol: "globe",
             title: "Press Globe again",
             detail: "Recording stops and your transcript pastes at the cursor.",
             tint: WhisperOwnBrand.amber
         ))
 
-        root.addArrangedSubview(shortcutCard())
         let menuNote = label(
-            "History, retries, your dictionary, model status, and performance all live under the WhisperOwn microphone in the menu bar.",
+            "History, Paste Last Transcript, your dictionary, and troubleshooting live under the WhisperOwn microphone in the menu bar.",
             .systemFont(ofSize: 12),
             .secondaryLabelColor
         )
@@ -241,35 +246,6 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         return row
     }
 
-    private func shortcutCard() -> NSView {
-        let card = NSView()
-        card.translatesAutoresizingMaskIntoConstraints = false
-        card.wantsLayer = true
-        card.layer?.backgroundColor = WhisperOwnBrand.teal.withAlphaComponent(0.10).cgColor
-        card.layer?.cornerRadius = 10
-        card.widthAnchor.constraint(equalToConstant: 468).isActive = true
-        card.heightAnchor.constraint(equalToConstant: 62).isActive = true
-
-        let shortcut = label("⌃⌘V", .monospacedSystemFont(ofSize: 17, weight: .semibold), WhisperOwnBrand.teal)
-        shortcut.translatesAutoresizingMaskIntoConstraints = false
-        let explanation = label(
-            "Paste the last transcript again if the first paste lands in the wrong place.",
-            .systemFont(ofSize: 12.5),
-            .labelColor
-        )
-        explanation.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(shortcut)
-        card.addSubview(explanation)
-        NSLayoutConstraint.activate([
-            shortcut.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
-            shortcut.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            shortcut.widthAnchor.constraint(equalToConstant: 50),
-            explanation.leadingAnchor.constraint(equalTo: shortcut.trailingAnchor, constant: 12),
-            explanation.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
-            explanation.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-        ])
-        return card
-    }
 
     // MARK: status
 

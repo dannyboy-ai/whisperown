@@ -3,6 +3,9 @@ import Cocoa
 final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate {
     private let onRetry: () -> Void
     private let onCancel: () -> Void
+    private var eyebrowLabel: NSTextField!
+    private var titleLabel: NSTextField!
+    private var explanationLabel: NSTextField!
     private var progress: NSProgressIndicator!
     private var statusLabel: NSTextField!
     private var actionButton: NSButton!
@@ -33,12 +36,14 @@ final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate 
 
     func show() {
         showWindow(nil)
+        window?.center()
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func update(_ state: ModelPreparationState) {
         switch state {
         case .preparing:
+            showSetupCopy()
             isActive = true
             progress.isIndeterminate = true
             progress.startAnimation(nil)
@@ -46,6 +51,7 @@ final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate 
             actionButton.title = "Cancel"
             actionButton.isEnabled = true
         case .progress(let fraction, let detail):
+            showSetupCopy()
             isActive = true
             progress.stopAnimation(nil)
             progress.isIndeterminate = false
@@ -54,14 +60,20 @@ final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate 
             actionButton.title = "Cancel"
             actionButton.isEnabled = true
         case .ready:
+            window?.title = "Speech Model"
+            eyebrowLabel.stringValue = "ON-DEVICE SPEECH MODEL"
+            titleLabel.stringValue = "Parakeet Unified is ready."
+            explanationLabel.stringValue = "WhisperOwn uses the Parakeet Unified English 0.6B model, powered by FluidAudio. Its 594 MB of model files live in Application Support; audio and transcripts stay on this Mac."
             isActive = false
             progress.stopAnimation(nil)
             progress.isIndeterminate = false
             progress.doubleValue = 100
-            statusLabel.stringValue = "Ready. Speech recognition stays on this Mac."
+            progress.isHidden = true
+            statusLabel.stringValue = "Ready for dictation"
             actionButton.title = "Done"
             actionButton.isEnabled = true
         case .failed(let message):
+            showSetupCopy()
             isActive = false
             progress.stopAnimation(nil)
             progress.isIndeterminate = false
@@ -69,6 +81,7 @@ final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate 
             actionButton.title = "Retry"
             actionButton.isEnabled = true
         case .cancelled:
+            showSetupCopy()
             isActive = false
             progress.stopAnimation(nil)
             progress.isIndeterminate = false
@@ -78,12 +91,21 @@ final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate 
         }
     }
 
+    private func showSetupCopy() {
+        window?.title = "WhisperOwn Setup"
+        eyebrowLabel.stringValue = "PRIVATE SPEECH MODEL"
+        titleLabel.stringValue = "Your voice stays on this Mac."
+        explanationLabel.stringValue = "WhisperOwn downloads its 594 MB speech model once. After this, dictation runs locally — no account, cloud, or subscription."
+        progress.isHidden = false
+    }
+
     private func buildContent() {
         guard let content = window?.contentView else { return }
 
         let hero = WhisperOwnBrand.heroImageView()
 
-        let eyebrow = NSTextField(labelWithString: "PRIVATE SPEECH MODEL")
+        eyebrowLabel = NSTextField(labelWithString: "PRIVATE SPEECH MODEL")
+        let eyebrow = eyebrowLabel!
         eyebrow.font = NSFont.systemFont(ofSize: 10.5, weight: .bold)
         eyebrow.textColor = WhisperOwnBrand.teal
         eyebrow.attributedStringValue = NSAttributedString(
@@ -95,11 +117,13 @@ final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate 
             ]
         )
 
-        let title = NSTextField(labelWithString: "Your voice stays on this Mac.")
+        titleLabel = NSTextField(labelWithString: "Your voice stays on this Mac.")
+        let title = titleLabel!
         title.font = WhisperOwnBrand.displayFont(size: 25)
         title.textColor = .labelColor
 
-        let explanation = NSTextField(wrappingLabelWithString: "WhisperOwn is downloading its 594 MB speech model once. After this, dictation runs locally — no account, cloud, or subscription.")
+        explanationLabel = NSTextField(wrappingLabelWithString: "WhisperOwn downloads its 594 MB speech model once. After this, dictation runs locally — no account, cloud, or subscription.")
+        let explanation = explanationLabel!
         explanation.font = NSFont.systemFont(ofSize: 13)
         explanation.textColor = .secondaryLabelColor
         explanation.maximumNumberOfLines = 3
@@ -149,6 +173,7 @@ final class ModelDownloadWindowController: NSWindowController, NSWindowDelegate 
             statusLabel.trailingAnchor.constraint(equalTo: actionButton.leadingAnchor, constant: -16),
 
             actionButton.trailingAnchor.constraint(equalTo: progress.trailingAnchor),
+            actionButton.widthAnchor.constraint(equalToConstant: 88),
             actionButton.topAnchor.constraint(equalTo: progress.bottomAnchor, constant: 11),
         ])
     }
