@@ -12,7 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var lastTranscription: String?
     private var lastWavURL: URL?
     private var historyWindow: HistoryWindowController?
-    private var settingsWindow: SettingsWindowController?
+    private var dictionaryWindow: DictionaryWindowController?
+    private var cleanupWindow: CleanupWindowController?
     private var aboutWindow: AboutWindowController?
     private var onboarding: OnboardingWindowController?
     private var modelWindow: ModelDownloadWindowController?
@@ -74,7 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         pasteLastItem = pasteItem
         menu.addItem(pasteItem)
         menu.addItem(NSMenuItem(title: "History…", action: #selector(showHistory), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "Dictionary…", action: #selector(showDictionary), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Cleanup…", action: #selector(showCleanup), keyEquivalent: ""))
 
         menu.addItem(NSMenuItem.separator())
         let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin), keyEquivalent: "")
@@ -842,11 +844,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc private func showSettings() {
-        if settingsWindow == nil {
-            settingsWindow = SettingsWindowController()
+    @objc private func showDictionary() {
+        if dictionaryWindow == nil {
+            dictionaryWindow = DictionaryWindowController()
         }
-        settingsWindow?.show()
+        dictionaryWindow?.show()
+    }
+
+    @objc private func showCleanup() {
+        if cleanupWindow == nil {
+            cleanupWindow = CleanupWindowController()
+        }
+        cleanupWindow?.show()
     }
 
     @objc private func showAbout() {

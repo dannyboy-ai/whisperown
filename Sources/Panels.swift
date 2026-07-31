@@ -493,18 +493,18 @@ final class HistoryWindowController: NSWindowController {
     }
 }
 
-// MARK: - Settings
+// MARK: - Dictionary and Cleanup
 
-final class SettingsWindowController: NSWindowController {
-    convenience init() {
-        let contentController = SettingsContentViewController()
+class WhisperOwnToolWindowController: NSWindowController {
+    init(title: String, contentController: NSViewController) {
+        let size = NSSize(width: 640, height: 540)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 590),
+            contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        window.title = "WhisperOwn Settings"
+        window.title = title
         window.center()
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
@@ -512,10 +512,11 @@ final class SettingsWindowController: NSWindowController {
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.contentViewController = contentController
-        window.setContentSize(NSSize(width: 640, height: 590))
-
-        self.init(window: window)
+        window.setContentSize(size)
+        super.init(window: window)
     }
+
+    required init?(coder: NSCoder) { nil }
 
     func show() {
         showWindow(nil)
@@ -524,79 +525,29 @@ final class SettingsWindowController: NSWindowController {
     }
 }
 
-private final class SettingsContentViewController: NSViewController {
-    private let dictionary = DictionarySettingsViewController()
-    private let cleanup = CleanupSettingsViewController()
-    private var pages: [NSViewController] = []
-
-    override func loadView() {
-        let root = NSView()
-        root.wantsLayer = true
-        root.layer?.backgroundColor = WhisperOwnBrand.ink.cgColor
-        view = root
-
-        let picker = NSSegmentedControl(
-            labels: ["Dictionary", "Cleanup"],
-            trackingMode: .selectOne,
-            target: self,
-            action: #selector(pageChanged(_:))
+final class DictionaryWindowController: WhisperOwnToolWindowController {
+    init() {
+        super.init(
+            title: "WhisperOwn Dictionary",
+            contentController: DictionaryViewController()
         )
-        picker.selectedSegment = 0
-        picker.segmentStyle = .rounded
-        picker.setImage(
-            NSImage(systemSymbolName: "text.book.closed", accessibilityDescription: "Dictionary"),
-            forSegment: 0
-        )
-        picker.setImage(
-            NSImage(systemSymbolName: "wand.and.stars", accessibilityDescription: "Cleanup"),
-            forSegment: 1
-        )
-        picker.setWidth(116, forSegment: 0)
-        picker.setWidth(116, forSegment: 1)
-
-        let pageContainer = NSView()
-        pageContainer.wantsLayer = true
-        pageContainer.layer?.backgroundColor = WhisperOwnBrand.ink.cgColor
-
-        picker.translatesAutoresizingMaskIntoConstraints = false
-        pageContainer.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(picker)
-        root.addSubview(pageContainer)
-
-        NSLayoutConstraint.activate([
-            picker.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
-            picker.centerXAnchor.constraint(equalTo: root.centerXAnchor),
-
-            pageContainer.topAnchor.constraint(equalTo: picker.bottomAnchor, constant: 10),
-            pageContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            pageContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            pageContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-        ])
-
-        pages = [dictionary, cleanup]
-        for (index, controller) in pages.enumerated() {
-            addChild(controller)
-            let page = controller.view
-            page.translatesAutoresizingMaskIntoConstraints = false
-            page.isHidden = index != 0
-            pageContainer.addSubview(page)
-            NSLayoutConstraint.activate([
-                page.topAnchor.constraint(equalTo: pageContainer.topAnchor),
-                page.leadingAnchor.constraint(equalTo: pageContainer.leadingAnchor),
-                page.trailingAnchor.constraint(equalTo: pageContainer.trailingAnchor),
-                page.bottomAnchor.constraint(equalTo: pageContainer.bottomAnchor),
-            ])
-        }
     }
 
-    @objc private func pageChanged(_ sender: NSSegmentedControl) {
-        for (index, page) in pages.enumerated() {
-            page.view.isHidden = index != sender.selectedSegment
-        }
-    }
+    required init?(coder: NSCoder) { nil }
 }
 
-private final class DictionarySettingsViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+final class CleanupWindowController: WhisperOwnToolWindowController {
+    init() {
+        super.init(
+            title: "WhisperOwn Cleanup",
+            contentController: CleanupViewController()
+        )
+    }
+
+    required init?(coder: NSCoder) { nil }
+}
+
+private final class DictionaryViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     private struct Entry {
         let heard: String
         let written: String
@@ -833,15 +784,24 @@ private final class DictionarySettingsViewController: NSViewController, NSTableV
     }
 }
 
-private final class CleanupSettingsViewController: NSViewController {
+private final class CleanupViewController: NSViewController {
     private var textView: NSTextView!
     private var copyButton: NSButton!
 
-    private static let copyButtonTitle = "Copy customization prompt"
+    private static let copyButtonTitle = "Copy agent request"
     private let prompt = """
-    I use WhisperOwn and want to change its deterministic dictation cleanup.
-    Requested behavior: <describe the change>.
-    Implement the rule in Sources/Postprocessor.swift, add Swift fixtures covering both the intended fix and a near-miss it must not change, then run the focused cleanup tests.
+    I use WhisperOwn and need a cleanup rule changed.
+
+    Requested behavior:
+    <describe what the transcript does now and what it should do instead>
+
+    Work in the existing cleanup architecture. Inspect Sources/Postprocessor.swift and its test fixtures before editing. Implement the smallest deterministic rule that solves the request without rewriting unrelated speech.
+
+    Add Swift fixture cases for both:
+    - the intended transcript that must change
+    - a near-miss that must remain unchanged
+
+    Run swift test and report the focused fixture result.
     """
 
     override func loadView() {
@@ -850,12 +810,12 @@ private final class CleanupSettingsViewController: NSViewController {
         root.layer?.backgroundColor = WhisperOwnBrand.ink.cgColor
         view = root
 
-        let title = NSTextField(labelWithString: "Deterministic cleanup")
+        let title = NSTextField(labelWithString: "Cleanup")
         title.font = WhisperOwnBrand.displayFont(size: 22)
         title.textColor = WhisperOwnBrand.paper
 
         let explanation = NSTextField(wrappingLabelWithString:
-            "These local rules remove dictation artifacts without rewriting your words with an LLM."
+            "Local rules remove dictation artifacts without rewriting your words."
         )
         explanation.font = NSFont.systemFont(ofSize: 13)
         explanation.textColor = .secondaryLabelColor
@@ -878,7 +838,7 @@ private final class CleanupSettingsViewController: NSViewController {
         textView.backgroundColor = WhisperOwnBrand.surface
         scroll.documentView = textView
 
-        let footer = NSTextField(labelWithString: "Want different cleanup behavior?")
+        let footer = NSTextField(labelWithString: "Cleanup rules live in code so every change stays testable.")
         footer.font = NSFont.systemFont(ofSize: 11)
         footer.textColor = .secondaryLabelColor
 
@@ -889,7 +849,7 @@ private final class CleanupSettingsViewController: NSViewController {
         )
         copyButton.bezelStyle = .rounded
         copyButton.controlSize = .small
-        copyButton.toolTip = "Copies a ready-to-edit request for a coding agent."
+        copyButton.toolTip = "Copies an editable change request for a coding agent."
 
         for child in [title, explanation, scroll, footer, copyButton!] {
             child.translatesAutoresizingMaskIntoConstraints = false

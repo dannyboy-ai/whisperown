@@ -393,7 +393,7 @@ final class MenuRevealViewController: NSViewController {
     init(onDone: @escaping () -> Void) {
         self.onDone = onDone
         super.init(nibName: nil, bundle: nil)
-        preferredContentSize = NSSize(width: 340, height: 304)
+        preferredContentSize = NSSize(width: 340, height: 326)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -426,9 +426,10 @@ final class MenuRevealViewController: NSViewController {
         title.alignment = .center
 
         let rows = NSStackView(views: [
-            menuRow("clock.arrow.circlepath", "History", "Every transcript and recording"),
-            menuRow("doc.on.clipboard", "Paste Last Transcript", "Use it if the first paste lands elsewhere"),
-            menuRow("slider.horizontal.3", "Settings", "Dictionary and cleanup rules"),
+            menuRow("doc.on.clipboard", "Paste Last Transcript"),
+            menuRow("clock.arrow.circlepath", "History"),
+            menuRow("text.book.closed", "Dictionary"),
+            menuRow("wand.and.stars", "Cleanup"),
         ])
         rows.orientation = .vertical
         rows.spacing = 8
@@ -460,7 +461,7 @@ final class MenuRevealViewController: NSViewController {
         ])
     }
 
-    private func menuRow(_ symbol: String, _ title: String, _ detail: String) -> NSView {
+    private func menuRow(_ symbol: String, _ title: String) -> NSView {
         let icon = NSImageView()
         icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
@@ -471,18 +472,10 @@ final class MenuRevealViewController: NSViewController {
         let heading = NSTextField(labelWithString: title)
         heading.font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
         heading.textColor = WhisperOwnBrand.paper
-        let explanation = NSTextField(labelWithString: detail)
-        explanation.font = NSFont.systemFont(ofSize: 10.5)
-        explanation.textColor = WhisperOwnBrand.secondaryText
+        heading.translatesAutoresizingMaskIntoConstraints = false
+        heading.widthAnchor.constraint(equalToConstant: 230).isActive = true
 
-        let copy = NSStackView(views: [heading, explanation])
-        copy.orientation = .vertical
-        copy.alignment = .leading
-        copy.spacing = 1
-        copy.translatesAutoresizingMaskIntoConstraints = false
-        copy.widthAnchor.constraint(equalToConstant: 230).isActive = true
-
-        let content = NSStackView(views: [icon, copy])
+        let content = NSStackView(views: [icon, heading])
         content.orientation = .horizontal
         content.alignment = .centerY
         content.spacing = 9
