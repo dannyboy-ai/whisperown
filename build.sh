@@ -3,6 +3,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_BUNDLE="$SCRIPT_DIR/dist/WhisperOwn.app"
+RELEASE_BUILD="${WHISPEROWN_RELEASE:-0}"
+INSTALL_APP="${WHISPEROWN_INSTALL_APP:-1}"
 
 echo "Building WhisperOwn..."
 
@@ -28,13 +30,29 @@ cp "$SCRIPT_DIR/Resources/BrandHero.png" "$APP_BUNDLE/Contents/Resources/BrandHe
 # EVERY rebuild — so Accessibility silently breaks each time (a stale ✓ stays in
 # the list). A stable signing identity binds the grant to the certificate instead,
 # so you grant Accessibility ONCE and it persists across all future rebuilds.
-# We auto-detect an Apple Development / Developer ID cert; override with
-# WHISPEROWN_SIGN_ID="<identity name>". No identity → ad-hoc (grant resets each build).
+# Local builds prefer an Apple Development identity so Accessibility survives
+# rebuilds. Release builds provide a Developer ID Application identity explicitly
+# and add the hardened runtime, secure timestamp, and release entitlements.
 SIGN_ID="${WHISPEROWN_SIGN_ID:-}"
 if [ -z "$SIGN_ID" ]; then
     SIGN_ID=$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID/{print $2; exit}')
 fi
-if [ -n "$SIGN_ID" ]; then
+if [ "$RELEASE_BUILD" = "1" ]; then
+    case "$SIGN_ID" in
+        "Developer ID Application:"*) ;;
+        *)
+            echo "ERROR: release builds require a Developer ID Application identity."
+            exit 1
+            ;;
+    esac
+    codesign --force --sign "$SIGN_ID" \
+        --identifier "com.whisperown.app" \
+        --options runtime \
+        --timestamp \
+        --entitlements "$SCRIPT_DIR/WhisperOwn.entitlements" \
+        "$APP_BUNDLE"
+    echo "Signed release with hardened runtime: $SIGN_ID"
+elif [ -n "$SIGN_ID" ]; then
     codesign --force --sign "$SIGN_ID" --identifier "com.whisperown.app" "$APP_BUNDLE"
     echo "Signed with stable identity: $SIGN_ID  (Accessibility grant persists across rebuilds)"
 else
@@ -42,21 +60,20 @@ else
     echo "Signed ad-hoc — no stable identity found; Accessibility must be re-granted after each rebuild"
 fi
 
-# Stop a running copy before replacing its bundle. Otherwise `open` after an
-# update keeps the old in-memory process and the user is not actually testing the
-# newly installed binary.
-osascript -e 'tell application id "com.whisperown.app" to quit' 2>/dev/null || true
-sleep 0.3
+if [ "$INSTALL_APP" = "1" ]; then
+    # Stop a running copy before replacing its bundle. Otherwise `open` after an
+    # update keeps the old in-memory process and the user is not actually testing
+    # the newly installed binary.
+    osascript -e 'tell application id "com.whisperown.app" to quit' 2>/dev/null || true
+    sleep 0.3
 
-# Install a REAL copy in /Applications (NOT a symlink). An ad-hoc-signed app
-# launched from a symlink into a user folder (~/Desktop/...) can't register a
-# stable Accessibility TCC entry — it prompts but never appears in the list, so
-# the grant never sticks. A real bundle at a canonical path fixes that. The
-# ad-hoc signature is path-independent, so the copy stays valid.
-rm -rf "/Applications/WhisperOwn.app"
-cp -R "$APP_BUNDLE" "/Applications/WhisperOwn.app"
+    # Install a real copy in /Applications. A symlinked ad-hoc app cannot keep a
+    # stable Accessibility grant.
+    rm -rf "/Applications/WhisperOwn.app"
+    cp -R "$APP_BUNDLE" "/Applications/WhisperOwn.app"
+    echo "Installed: /Applications/WhisperOwn.app  (real copy — run THIS one)"
+    echo ""
+    echo "To run:  open /Applications/WhisperOwn.app"
+fi
 
 echo "Built:     $APP_BUNDLE"
-echo "Installed: /Applications/WhisperOwn.app  (real copy — run THIS one)"
-echo ""
-echo "To run:  open /Applications/WhisperOwn.app"

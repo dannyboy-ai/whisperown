@@ -36,13 +36,25 @@ release waits on Developer ID signing. Expect first-run macOS permission setup.
 
 - Apple silicon Mac (M1 or newer)
 - macOS 14 Sonoma or later
-- Xcode 16 Command Line Tools (Swift 6): `xcode-select --install`
 - About 594 MB for the speech model
 
 No Python, Homebrew, background service, localhost port, or globally installed
 package is required.
 
-## Install from source
+## Install
+
+1. Download the latest `WhisperOwn-…-macOS-arm64.zip` from
+   [GitHub Releases](https://github.com/dannyboy-ai/whisperown/releases/latest).
+2. Open the ZIP and move **WhisperOwn.app** to `/Applications`.
+3. Open WhisperOwn from `/Applications`.
+
+Release builds are Developer ID-signed and notarized by Apple. No Gatekeeper
+bypass is required. WhisperOwn does not update itself yet; install a newer
+release by replacing the app in `/Applications`.
+
+### Build from source
+
+Install Xcode 16 Command Line Tools (`xcode-select --install`), then:
 
 ```sh
 git clone https://github.com/dannyboy-ai/whisperown.git
