@@ -39,6 +39,134 @@ final class PostprocessorTests: XCTestCase {
         )
         XCTAssertEqual(Postprocessor.process("thank you. ", dictionary: [:]), "thank you")
     }
+
+    func testTerminalDictationsTypePeriodBeforePastingLeadingSpace() {
+        for reportedContext in [String?.none, String?.some("")] {
+            let first = DictationJoiner.joining(
+                "first thought",
+                contextBeforeCursor: reportedContext,
+                priorDictation: nil
+            )
+            let second = DictationJoiner.joining(
+                "second thought",
+                contextBeforeCursor: reportedContext,
+                priorDictation: "first thought"
+            )
+            let rendered = first.pasteText
+                + (second.typePeriodBeforePaste ? "." : "")
+                + second.pasteText
+
+            XCTAssertEqual(first, DictationInsertion(
+                pasteText: "first thought",
+                typePeriodBeforePaste: false
+            ))
+            XCTAssertEqual(second, DictationInsertion(
+                pasteText: " second thought",
+                typePeriodBeforePaste: true
+            ))
+            XCTAssertEqual(rendered, "first thought. second thought")
+        }
+    }
+
+    func testGlobeKeyDoesNotResetTerminalJoinState() {
+        XCTAssertTrue(PasteJoinEventFilter.isGlobeKey(179))
+        XCTAssertFalse(PasteJoinEventFilter.isGlobeKey(36))
+        XCTAssertFalse(PasteJoinEventFilter.isGlobeKey(0x09))
+    }
+
+    func testMouseClickOnlyResetsAfterChangingProcesses() {
+        XCTAssertFalse(PasteJoinEventFilter.mouseChangedProcess(
+            previous: 100,
+            current: 100
+        ))
+        XCTAssertTrue(PasteJoinEventFilter.mouseChangedProcess(
+            previous: 100,
+            current: 200
+        ))
+        XCTAssertTrue(PasteJoinEventFilter.mouseChangedProcess(
+            previous: 100,
+            current: nil
+        ))
+        XCTAssertFalse(PasteJoinEventFilter.mouseChangedProcess(
+            previous: nil,
+            current: 100
+        ))
+    }
+
+    func testDelayedSyntheticPasteDoesNotResetTerminalJoinState() {
+        XCTAssertTrue(PasteJoinEventFilter.isExpectedSyntheticPaste(
+            keyCode: 0x09,
+            hasCommand: true,
+            hasControl: false,
+            markerMatches: false,
+            now: 10,
+            fallbackDeadline: 10.5
+        ))
+        XCTAssertTrue(PasteJoinEventFilter.isExpectedSyntheticPaste(
+            keyCode: 0x09,
+            hasCommand: true,
+            hasControl: false,
+            markerMatches: true,
+            now: 20,
+            fallbackDeadline: 0
+        ))
+        XCTAssertFalse(PasteJoinEventFilter.isExpectedSyntheticPaste(
+            keyCode: 0x09,
+            hasCommand: true,
+            hasControl: false,
+            markerMatches: false,
+            now: 11,
+            fallbackDeadline: 10.5
+        ))
+        XCTAssertFalse(PasteJoinEventFilter.isExpectedSyntheticPaste(
+            keyCode: 0x09,
+            hasCommand: true,
+            hasControl: true,
+            markerMatches: false,
+            now: 10,
+            fallbackDeadline: 10.5
+        ))
+    }
+
+    func testCursorJoiningNeverLeavesSpaceBeforePeriod() {
+        XCTAssertEqual(
+            DictationJoiner.joining(
+                "next",
+                contextBeforeCursor: "hello",
+                priorDictation: nil
+            ),
+            DictationInsertion(pasteText: ". next", typePeriodBeforePaste: false)
+        )
+        let afterPunctuation = DictationJoiner.joining(
+            "next",
+            contextBeforeCursor: nil,
+            priorDictation: "hello."
+        )
+        XCTAssertEqual(afterPunctuation, DictationInsertion(
+            pasteText: " next",
+            typePeriodBeforePaste: false
+        ))
+        XCTAssertEqual("hello." + afterPunctuation.pasteText, "hello. next")
+        XCTAssertEqual(
+            DictationJoiner.joining(
+                "next",
+                contextBeforeCursor: "hello ",
+                priorDictation: "hello"
+            ),
+            DictationInsertion(pasteText: "next", typePeriodBeforePaste: false)
+        )
+    }
+
+    func testTranscriptionAudioAddsFinalizationContext() {
+        let captured: [Float] = [0.25, -0.5, 0.75]
+        let input = TranscriptionAudio.addingTrailingSilence(to: captured)
+
+        XCTAssertEqual(input.count, captured.count + 5_120)
+        XCTAssertEqual(Array(input.prefix(captured.count)), captured)
+        XCTAssertTrue(input.suffix(5_120).allSatisfy { $0 == 0 })
+        XCTAssertEqual(captured.count, 3)
+    }
+
     func testNativeHistoryRoundTrip() async throws {
         let databaseURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("whisperown-history-\(UUID().uuidString).db")
@@ -113,5 +241,13 @@ final class PostprocessorTests: XCTestCase {
         let cleaned = Postprocessor.process(raw, dictionary: [:])
         XCTAssertFalse(cleaned.isEmpty)
         XCTAssertGreaterThan(cleaned.split(separator: " ").count, 1)
+        if let expectedLastWord = ProcessInfo.processInfo.environment[
+            "WHISPEROWN_SMOKE_EXPECTED_LAST_WORD"
+        ] {
+            XCTAssertTrue(
+                cleaned.lowercased().hasSuffix(expectedLastWord.lowercased()),
+                "expected final word \(expectedLastWord), got: \(cleaned)"
+            )
+        }
     }
 }
