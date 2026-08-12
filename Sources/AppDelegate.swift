@@ -3,6 +3,88 @@ import AVFoundation
 import Carbon.HIToolbox
 import ServiceManagement
 
+struct DictationInsertion: Equatable {
+    let pasteText: String
+    let typePeriodBeforePaste: Bool
+}
+
+enum DictationJoiner {
+    static func joining(
+        _ text: String,
+        contextBeforeCursor: String?,
+        priorDictation: String?
+    ) -> DictationInsertion {
+        guard !text.isEmpty else {
+            return DictationInsertion(pasteText: "", typePeriodBeforePaste: false)
+        }
+        if let last = contextBeforeCursor?.last {
+            return DictationInsertion(
+                pasteText: separator(after: last) + text,
+                typePeriodBeforePaste: false
+            )
+        }
+        // Some terminal accessibility trees claim the selection is at offset zero
+        // even while their TUI input contains text. CMUX renders a period included
+        // in the clipboard payload as " .", so type it separately and paste only
+        // the leading space plus transcript.
+        guard let last = priorDictation?.last, !last.isWhitespace else {
+            return DictationInsertion(pasteText: text, typePeriodBeforePaste: false)
+        }
+        return DictationInsertion(
+            pasteText: " " + text,
+            typePeriodBeforePaste: last.isLetter || last.isNumber
+        )
+    }
+
+    private static func separator(after character: Character) -> String {
+        if character.isWhitespace {
+            return ""
+        }
+        if character.isLetter || character.isNumber {
+            return ". "
+        }
+        return " "
+    }
+}
+
+private struct FocusedPasteContext {
+    let processIdentifier: pid_t?
+    let textBeforeCursor: String?
+}
+
+private struct PendingPaste {
+    let text: String
+    let onIssued: (() -> Void)?
+}
+
+enum PasteJoinEventFilter {
+    static func isGlobeKey(_ keyCode: Int64) -> Bool {
+        keyCode == 179
+    }
+
+    static func mouseChangedProcess(previous: pid_t?, current: pid_t?) -> Bool {
+        guard let previous else { return false }
+        return current != previous
+    }
+
+    static func isExpectedSyntheticPaste(
+        keyCode: Int64,
+        hasCommand: Bool,
+        hasControl: Bool,
+        markerMatches: Bool,
+        now: TimeInterval,
+        fallbackDeadline: TimeInterval
+    ) -> Bool {
+        if markerMatches {
+            return true
+        }
+        return keyCode == Int64(kVK_ANSI_V)
+            && hasCommand
+            && !hasControl
+            && now <= fallbackDeadline
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var statusItem: NSStatusItem!
     private var recorder: AudioRecorder!
@@ -31,6 +113,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var hotkeyArmed = false
     private var lastFailedHistoryID: Int64?
     private var lastAudioDurationMilliseconds: Int?
+    private var pendingPastes: [PendingPaste] = []
+    private var pasteIsInFlight = false
+    private var pasteboardStringBeforeSequence: String?
+    private var pasteboardSnapshotTaken = false
+    private var pasteboardRestore: DispatchWorkItem?
+    private var lastPasteProcessIdentifier: pid_t?
+    private var lastPastedDictation: String?
+    private static let syntheticPasteMarker: Int64 = 0x574F5041535445
+    private var syntheticPasteFallbackDeadline: TimeInterval = 0
     private static let practicePendingKey = "onboarding.practicePending"
 
     // Hard cap on a single recording. A forgotten or stuck recording otherwise
@@ -347,7 +438,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private func setupHotKeyMonitoring() {
         let eventMask: CGEventMask = (1 << CGEventType.flagsChanged.rawValue)
             | (1 << CGEventType.keyDown.rawValue)
-
+            | (1 << CGEventType.leftMouseDown.rawValue)
+            | (1 << CGEventType.rightMouseDown.rawValue)
+            | (1 << CGEventType.otherMouseDown.rawValue)
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -372,6 +465,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
     func handleCGEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
+            validatePasteTargetAfterMouseEvent()
+            return Unmanaged.passRetained(event)
+        }
+
         if type == .keyDown {
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
             let flags = event.flags
@@ -379,12 +477,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             let hasCmd = flags.contains(.maskCommand)
             let noShift = !flags.contains(.maskShift)
             let noAlt = !flags.contains(.maskAlternate)
+            let markerMatches = event.getIntegerValueField(.eventSourceUserData)
+                == Self.syntheticPasteMarker
+            // Modern Apple keyboards also emit a key-down event with code 179 for
+            // Globe. The flagsChanged path below owns that key; it is not text input
+            // and must not clear the context between consecutive dictations.
+            if PasteJoinEventFilter.isGlobeKey(keyCode) {
+                return Unmanaged.passRetained(event)
+            }
 
-            if keyCode == 0x09 && hasCtrl && hasCmd && noShift && noAlt {
+            if PasteJoinEventFilter.isExpectedSyntheticPaste(
+                keyCode: keyCode,
+                hasCommand: hasCmd,
+                hasControl: hasCtrl,
+                markerMatches: markerMatches,
+                now: ProcessInfo.processInfo.systemUptime,
+                fallbackDeadline: syntheticPasteFallbackDeadline
+            ) {
+                return Unmanaged.passRetained(event)
+            }
+
+            if keyCode == Int64(kVK_ANSI_V) && hasCtrl && hasCmd && noShift && noAlt {
                 DispatchQueue.main.async { self.rePasteLastTranscription() }
                 return nil
             }
-
+            resetPasteJoinState(reason: "key-\(keyCode)")
             return Unmanaged.passRetained(event)
         }
 
@@ -743,85 +860,253 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         Int((end - start) * 1_000)
     }
 
-    // The last few characters before the insertion point in the focused text field,
-    // via the Accessibility API (already granted). Returns nil when the app doesn't
-    // expose it (some terminals / web / Electron views) — the caller then pastes
-    // plainly. Reads at most ~16 chars, never the whole document.
-    private func contextBeforeCursor() -> String? {
+    // The last few characters before the insertion point in the focused text field.
+    // Some terminal and Electron controls expose a focused AX element but not its
+    // selected range; retaining the process ID still lets consecutive dictations in
+    // that untouched target join without relying on a trailing space.
+    private func focusedPasteContext() -> FocusedPasteContext {
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let system = AXUIElementCreateSystemWide()
         var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-              CFGetTypeID(focused!) == AXUIElementGetTypeID() else { return nil }
+        guard AXUIElementCopyAttributeValue(
+            system,
+            kAXFocusedUIElementAttribute as CFString,
+            &focused
+        ) == .success,
+        CFGetTypeID(focused!) == AXUIElementGetTypeID() else {
+            return FocusedPasteContext(
+                processIdentifier: frontmostPID,
+                textBeforeCursor: nil
+            )
+        }
         let element = focused as! AXUIElement
+        var elementPID: pid_t = 0
+        let processIdentifier = AXUIElementGetPid(element, &elementPID) == .success
+            ? elementPID
+            : frontmostPID
 
         var rangeRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success else { return nil }
-        var sel = CFRange()
-        guard AXValueGetValue(rangeRef as! AXValue, .cfRange, &sel) else { return nil }
-        let cursor = sel.location
-        if cursor <= 0 { return "" }
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &rangeRef
+        ) == .success else {
+            return FocusedPasteContext(
+                processIdentifier: processIdentifier,
+                textBeforeCursor: nil
+            )
+        }
+        var selection = CFRange()
+        guard AXValueGetValue(rangeRef as! AXValue, .cfRange, &selection) else {
+            return FocusedPasteContext(
+                processIdentifier: processIdentifier,
+                textBeforeCursor: nil
+            )
+        }
+        let cursor = selection.location
+        if cursor <= 0 {
+            return FocusedPasteContext(
+                processIdentifier: processIdentifier,
+                textBeforeCursor: ""
+            )
+        }
 
         let start = max(0, cursor - 16)
         var wanted = CFRange(location: start, length: cursor - start)
-        guard let wantedVal = AXValueCreate(.cfRange, &wanted) else { return nil }
-        var strRef: CFTypeRef?
-        if AXUIElementCopyParameterizedAttributeValue(element, kAXStringForRangeParameterizedAttribute as CFString, wantedVal, &strRef) == .success,
-           let s = strRef as? String {
-            return s
+        guard let wantedValue = AXValueCreate(.cfRange, &wanted) else {
+            return FocusedPasteContext(
+                processIdentifier: processIdentifier,
+                textBeforeCursor: nil
+            )
         }
-        return nil
+        var stringRef: CFTypeRef?
+        let textBeforeCursor: String?
+        if AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXStringForRangeParameterizedAttribute as CFString,
+            wantedValue,
+            &stringRef
+        ) == .success {
+            textBeforeCursor = stringRef as? String
+        } else {
+            textBeforeCursor = nil
+        }
+        return FocusedPasteContext(
+            processIdentifier: processIdentifier,
+            textBeforeCursor: textBeforeCursor
+        )
+    }
+
+    private func resetPasteJoinState(reason: String) {
+        if lastPasteProcessIdentifier != nil || lastPastedDictation != nil {
+            print("Paste join state reset: \(reason)")
+        }
+        lastPasteProcessIdentifier = nil
+        lastPastedDictation = nil
+    }
+
+    private func validatePasteTargetAfterMouseEvent() {
+        let previousProcessIdentifier = lastPasteProcessIdentifier
+        guard previousProcessIdentifier != nil else { return }
+        // The event tap runs before the clicked application updates focus.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self else { return }
+            let currentProcessIdentifier = self.focusedPasteContext().processIdentifier
+            if PasteJoinEventFilter.mouseChangedProcess(
+                previous: previousProcessIdentifier,
+                current: currentProcessIdentifier
+            ) {
+                self.resetPasteJoinState(reason: "mouse-process-changed")
+            }
+        }
     }
 
     private func pasteText(_ text: String, onIssued: (() -> Void)? = nil) {
-        // `text` has no trailing space and, by design, no trailing period. The
-        // separator is decided from whatever sits right before the cursor, so a
-        // chained dictation closes the previous one ("there. how") instead of
-        // running on.
-        //
-        // Nothing is ever deleted to achieve that. An earlier version emitted a
-        // trailing space and then backspaced it away to make the period hug the
-        // word — but a synthesized delete that loses the race leaves "there . how".
-        // Emitting no trailing space removes the need for the delete entirely.
-        var toPaste = text
-        if let before = contextBeforeCursor() {
-            if let last = before.last {
-                if last == " " || last == "\t" || last == "\n" {
-                    // already separated (or a fresh line) — paste as-is
-                } else if last.isLetter || last.isNumber {
-                    toPaste = ". " + text   // close the previous dictation
-                } else {
-                    toPaste = " " + text    // after . ! ? , etc.
-                }
-            }
-            // before.isEmpty -> start of the field, paste as-is
+        pasteboardRestore?.cancel()
+        pasteboardRestore = nil
+        pendingPastes.append(PendingPaste(text: text, onIssued: onIssued))
+        issueNextPasteIfNeeded()
+    }
+
+    private func issueNextPasteIfNeeded() {
+        guard !pasteIsInFlight, !pendingPastes.isEmpty else { return }
+        pasteIsInFlight = true
+        let pending = pendingPastes.removeFirst()
+        let focus = focusedPasteContext()
+        let sameUnchangedTarget = focus.processIdentifier != nil
+            && focus.processIdentifier == lastPasteProcessIdentifier
+        let insertion = DictationJoiner.joining(
+            pending.text,
+            contextBeforeCursor: focus.textBeforeCursor,
+            priorDictation: sameUnchangedTarget ? lastPastedDictation : nil
+        )
+        let toPaste = insertion.pasteText
+        let contextKind: String
+        if focus.textBeforeCursor == nil {
+            contextKind = "unavailable"
+        } else if focus.textBeforeCursor?.isEmpty == true {
+            contextKind = "empty"
         } else {
-            // No accessibility context available (some apps expose none). Fall back
-            // to a trailing space so chained dictations still don't run together.
-            toPaste = text + " "
+            contextKind = "text"
         }
+        let separatorKind = insertion.typePeriodBeforePaste
+            ? "typed-sentence"
+            : (toPaste == pending.text
+                ? "none"
+                : (toPaste.hasPrefix(". ") ? "sentence" : "space"))
+        print(
+            "Paste join: ax=\(contextKind) sameProcess=\(sameUnchangedTarget) " +
+            "prior=\(sameUnchangedTarget && lastPastedDictation != nil) separator=\(separatorKind)"
+        )
 
         let pasteboard = NSPasteboard.general
-        let previousContents = pasteboard.string(forType: .string)
-
+        if !pasteboardSnapshotTaken {
+            pasteboardStringBeforeSequence = pasteboard.string(forType: .string)
+            pasteboardSnapshotTaken = true
+        }
         pasteboard.clearContents()
         pasteboard.setString(toPaste, forType: .string)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self else {
+                pending.onIssued?()
+                return
+            }
             let source = CGEventSource(stateID: .hidSystemState)
-            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-            keyDown?.flags = .maskCommand
-            keyDown?.post(tap: .cgSessionEventTap)
-            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-            keyUp?.flags = .maskCommand
-            keyUp?.post(tap: .cgSessionEventTap)
-            onIssued?()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if let prev = previousContents {
-                    pasteboard.clearContents()
-                    pasteboard.setString(prev, forType: .string)
+            if insertion.typePeriodBeforePaste {
+                let periodDown = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: CGKeyCode(kVK_ANSI_Period),
+                    keyDown: true
+                )
+                periodDown?.setIntegerValueField(
+                    .eventSourceUserData,
+                    value: Self.syntheticPasteMarker
+                )
+                periodDown?.post(tap: .cgSessionEventTap)
+                let periodUp = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: CGKeyCode(kVK_ANSI_Period),
+                    keyDown: false
+                )
+                periodUp?.setIntegerValueField(
+                    .eventSourceUserData,
+                    value: Self.syntheticPasteMarker
+                )
+                periodUp?.post(tap: .cgSessionEventTap)
+            }
+
+            let issuePaste = {
+                // Some terminal event paths discard eventSourceUserData. Keep a
+                // short command-V-specific fallback window so our delayed paste
+                // cannot erase the join state after it is recorded below.
+                self.syntheticPasteFallbackDeadline =
+                    ProcessInfo.processInfo.systemUptime + 0.5
+                let keyDown = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: CGKeyCode(kVK_ANSI_V),
+                    keyDown: true
+                )
+                keyDown?.flags = .maskCommand
+                keyDown?.setIntegerValueField(
+                    .eventSourceUserData,
+                    value: Self.syntheticPasteMarker
+                )
+                keyDown?.post(tap: .cgSessionEventTap)
+                let keyUp = CGEvent(
+                    keyboardEventSource: source,
+                    virtualKey: CGKeyCode(kVK_ANSI_V),
+                    keyDown: false
+                )
+                keyUp?.flags = .maskCommand
+                keyUp?.setIntegerValueField(
+                    .eventSourceUserData,
+                    value: Self.syntheticPasteMarker
+                )
+                keyUp?.post(tap: .cgSessionEventTap)
+
+                self.lastPasteProcessIdentifier = focus.processIdentifier
+                self.lastPastedDictation = pending.text
+                pending.onIssued?()
+
+                // Let the target consume Cmd-V before another dictation replaces
+                // the shared pasteboard.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                    guard let self else { return }
+                    self.pasteIsInFlight = false
+                    if self.pendingPastes.isEmpty {
+                        self.schedulePasteboardRestore(expectedCurrentString: toPaste)
+                    } else {
+                        self.issueNextPasteIfNeeded()
+                    }
                 }
             }
+
+            if insertion.typePeriodBeforePaste {
+                // Keep the typed period ahead of CMUX's bracketed-paste handling.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: issuePaste)
+            } else {
+                issuePaste()
+            }
         }
+    }
+
+    private func schedulePasteboardRestore(expectedCurrentString: String) {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let pasteboard = NSPasteboard.general
+            if pasteboard.string(forType: .string) == expectedCurrentString {
+                pasteboard.clearContents()
+                if let previous = self.pasteboardStringBeforeSequence {
+                    pasteboard.setString(previous, forType: .string)
+                }
+            }
+            self.pasteboardStringBeforeSequence = nil
+            self.pasteboardSnapshotTaken = false
+            self.pasteboardRestore = nil
+        }
+        pasteboardRestore = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
     }
 
     @objc private func showHistory() {

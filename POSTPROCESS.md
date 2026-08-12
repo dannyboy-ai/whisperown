@@ -127,7 +127,13 @@ the next transcript.
 dictation to whatever is already before the cursor: a chained dictation that lands
 right after a word gets `". "` (closing the previous one — `"there. how"`), text
 after `.!?` or a comma gets `" "`, and a cursor already sitting on whitespace or an
-empty field gets nothing.
+empty field gets nothing. When a terminal or Electron control does not expose
+cursor text through Accessibility, WhisperOwn remembers the prior dictation in the
+same application. After a word it types the period directly, then pastes a plain
+leading `" "` plus the next transcript; this avoids CMUX rendering a period inside
+the clipboard payload as `" ."`. Ordinary keyboard input or switching applications
+resets that fallback. Globe presses and clicks that remain in the same application
+preserve it. It never emits trailing whitespace.
 
 This lives in the app, not here, on purpose. An earlier design appended a trailing
 space and then *backspaced it away* to make the inserted period hug the word — but a
