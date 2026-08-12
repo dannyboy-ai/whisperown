@@ -39,6 +39,17 @@ final class PostprocessorTests: XCTestCase {
         )
         XCTAssertEqual(Postprocessor.process("thank you. ", dictionary: [:]), "thank you")
     }
+
+    func testTranscriptionAudioAddsFinalizationContext() {
+        let captured: [Float] = [0.25, -0.5, 0.75]
+        let input = TranscriptionAudio.addingTrailingSilence(to: captured)
+
+        XCTAssertEqual(input.count, captured.count + 5_120)
+        XCTAssertEqual(Array(input.prefix(captured.count)), captured)
+        XCTAssertTrue(input.suffix(5_120).allSatisfy { $0 == 0 })
+        XCTAssertEqual(captured.count, 3)
+    }
+
     func testNativeHistoryRoundTrip() async throws {
         let databaseURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("whisperown-history-\(UUID().uuidString).db")
@@ -113,5 +124,13 @@ final class PostprocessorTests: XCTestCase {
         let cleaned = Postprocessor.process(raw, dictionary: [:])
         XCTAssertFalse(cleaned.isEmpty)
         XCTAssertGreaterThan(cleaned.split(separator: " ").count, 1)
+        if let expectedLastWord = ProcessInfo.processInfo.environment[
+            "WHISPEROWN_SMOKE_EXPECTED_LAST_WORD"
+        ] {
+            XCTAssertTrue(
+                cleaned.lowercased().hasSuffix(expectedLastWord.lowercased()),
+                "expected final word \(expectedLastWord), got: \(cleaned)"
+            )
+        }
     }
 }

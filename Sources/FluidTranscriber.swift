@@ -10,6 +10,21 @@ enum ModelPreparationState: Sendable {
     case cancelled
 }
 
+enum TranscriptionAudio {
+    // Parakeet needs right-side acoustic context to finalize the last token. A
+    // stopped recording has none, so provide the 320 ms finalization window used
+    // by Parakeet streaming pipelines without changing the saved recording.
+    static let trailingSilenceSampleCount = 5_120
+
+    static func addingTrailingSilence(to samples: [Float]) -> [Float] {
+        guard !samples.isEmpty else { return samples }
+        var input = samples
+        input.reserveCapacity(samples.count + trailingSilenceSampleCount)
+        input.append(contentsOf: repeatElement(0, count: trailingSilenceSampleCount))
+        return input
+    }
+}
+
 actor FluidTranscriber {
     private var manager = UnifiedAsrManager()
     private var preparation: Task<Void, Error>?
@@ -110,7 +125,9 @@ actor FluidTranscriber {
     func transcribe(_ samples: [Float]) async throws -> String {
         try await prepare()
         let started = ProcessInfo.processInfo.systemUptime
-        let text = try await manager.transcribe(samples)
+        let text = try await manager.transcribe(
+            TranscriptionAudio.addingTrailingSilence(to: samples)
+        )
         let elapsedMS = Int((ProcessInfo.processInfo.systemUptime - started) * 1_000)
         print("Fluid Unified inference: \(elapsedMS) ms")
         return text

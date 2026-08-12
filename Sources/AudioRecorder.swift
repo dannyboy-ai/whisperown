@@ -81,7 +81,11 @@ class AudioRecorder {
         // which was clipping the final word when you stopped mid-syllable. The
         // extra callbacks are negligible CPU.
         inputNode.installTap(onBus: 0, bufferSize: 512, format: hardwareFormat) { [weak self] buffer, _ in
-            guard let self = self, let conv = self.converter, let outFile = self.audioFile else { return }
+            guard let self else { return }
+            self.samplesLock.lock()
+            defer { self.samplesLock.unlock() }
+            guard let conv = self.converter, let outFile = self.audioFile else { return }
+
             let outFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 1024)
             guard let outBuffer = AVAudioPCMBuffer(pcmFormat: writeFormat, frameCapacity: outFrameCapacity) else { return }
             var providedInput = false
@@ -104,9 +108,7 @@ class AudioRecorder {
             if outBuffer.frameLength == 0 { return }
             if let channel = outBuffer.floatChannelData?[0] {
                 let samples = UnsafeBufferPointer(start: channel, count: Int(outBuffer.frameLength))
-                self.samplesLock.lock()
                 self.recordedSamples.append(contentsOf: samples)
-                self.samplesLock.unlock()
             }
             do {
                 try outFile.write(from: outBuffer)
@@ -135,26 +137,26 @@ class AudioRecorder {
     func stopRecording() -> AudioRecording? {
         let resultURL = outputURL
 
-        // Stop the engine while the file is STILL open, so the last in-flight tap
-        // buffers flush to disk. Closing the file first (as we used to) discarded
-        // them and clipped the final syllable — recordings ended with 0ms trailing
-        // silence and the last word could be cut. Close the file BEFORE removeTap,
-        // though: a throw in removeTap must not leave a header-only file with no
-        // audio (the original reason we closed early).
+        // Stop delivery and remove the tap before closing its converter/file. The
+        // callback holds samplesLock across conversion, sample retention, and file
+        // writing; taking the same lock here drains an in-flight final buffer before
+        // the samples are handed to transcription.
         audioEngine?.stop()
-        audioFile = nil
-
         if tapInstalled, let inputNode = audioEngine?.inputNode {
             inputNode.removeTap(onBus: 0)
             tapInstalled = false
         }
-        audioEngine = nil
-        converter = nil
-        guard let resultURL else { return nil }
+
         samplesLock.lock()
+        audioFile = nil
+        converter = nil
         let samples = recordedSamples
         recordedSamples = []
         samplesLock.unlock()
+
+        audioEngine = nil
+        outputURL = nil
+        guard let resultURL else { return nil }
         return AudioRecording(url: resultURL, samples: samples)
     }
 
